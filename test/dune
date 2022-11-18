@@ -1,0 +1,2 @@
+(library (name polling_state_rpc_test) (preprocess (pps ppx_jane ppx_diff))
+ (libraries core async polling_state_rpc expect_test_helpers_core))

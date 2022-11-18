@@ -1,0 +1,3 @@
+(library (name polling_state_rpc) (public_name polling_state_rpc)
+ (libraries core_kernel.bus diffable async_rpc_kernel async_kernel core)
+ (preprocess (pps ppx_jane)))
