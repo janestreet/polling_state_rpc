@@ -16,57 +16,78 @@ module Query_dispatch_id = Unique_id.Int ()
 module Client_id = Unique_id.Int ()
 
 module Cache : sig
-  type 'a t
-  type 'a per_client
+  type ('a, 'client_state) t
+  type ('a, 'client_state) per_client
 
-  val create : unit -> 'a t
-  val find : 'a t -> connection:Rpc.Connection.t -> client_id:Client_id.t -> 'a per_client
+  val create : on_client_forgotten:('client_state -> unit) -> ('a, 'client_state) t
+
+  val find
+    :  ('a, 'client_state) t
+    -> connection_state:'connection_state
+    -> connection:Rpc.Connection.t
+    -> client_id:Client_id.t
+    -> create_client_state:('connection_state -> 'client_state)
+    -> ('a, 'client_state) per_client
 
   val remove_and_trigger_cancel
-    :  'a t
+    :  ('a, 'client_state) t
     -> connection:Rpc.Connection.t
     -> client_id:Client_id.t
     -> unit
 
-  val last_response : 'a per_client -> ('a * Seqnum.t) option
-  val set : 'a per_client -> 'a -> Seqnum.t
-  val wait_for_cancel : 'a per_client -> unit Deferred.t
-  val trigger_cancel : 'a per_client -> unit
+  val last_response : ('a, 'client_state) per_client -> ('a * Seqnum.t) option
+  val set : ('a, 'client_state) per_client -> 'a -> Seqnum.t
+  val wait_for_cancel : ('a, 'client_state) per_client -> unit Deferred.t
+  val trigger_cancel : ('a, 'client_state) per_client -> unit
+  val client_state : ('a, 'client_state) per_client -> 'client_state
 end = struct
-  type 'a per_client =
+  type ('a, 'client_state) per_client =
     { mutable last_response : ('a * Seqnum.t) option
     ; mutable cancel : unit Ivar.t
+    ; client_state : 'client_state
     }
 
-  type 'a per_connection = 'a per_client Client_id.Table.t
-  type 'a t = (Rpc.Connection.t * 'a per_connection) Bag.t
+  type ('a, 'client_state) per_connection =
+    ('a, 'client_state) per_client Client_id.Table.t
 
-  let create () = Bag.create ()
+  type ('a, 'client_state) t =
+    { connections : (Rpc.Connection.t * ('a, 'client_state) per_connection) Bag.t
+    ; on_client_forgotten : 'client_state -> unit
+    }
+
+  let create ~on_client_forgotten = { connections = Bag.create (); on_client_forgotten }
 
   let find_by_connection t ~connection =
     Bag.find t ~f:(fun (conn, _) -> phys_equal connection conn) |> Option.map ~f:snd
   ;;
 
-  let find t ~connection ~client_id =
+  let find t ~connection_state ~connection ~client_id ~create_client_state =
     let per_connection =
-      match find_by_connection t ~connection with
+      match find_by_connection t.connections ~connection with
       | Some per_connection -> per_connection
       | None ->
         let result = Client_id.Table.create () in
-        let elt = Bag.add t (connection, result) in
+        let elt = Bag.add t.connections (connection, result) in
         Deferred.upon (Rpc.Connection.close_finished connection) (fun () ->
-          Bag.remove t elt);
+          Hashtbl.iter result ~f:(fun { client_state; _ } ->
+            t.on_client_forgotten client_state);
+          Bag.remove t.connections elt);
         result
     in
     Hashtbl.find_or_add per_connection client_id ~default:(fun () ->
-      { last_response = None; cancel = Ivar.create () })
+      { last_response = None
+      ; cancel = Ivar.create ()
+      ; client_state = create_client_state connection_state
+      })
   ;;
 
   let remove_and_trigger_cancel t ~connection ~client_id =
-    Option.iter (find_by_connection t ~connection) ~f:(fun per_connection ->
+    Option.iter (find_by_connection t.connections ~connection) ~f:(fun per_connection ->
       Option.iter
         (Hashtbl.find_and_remove per_connection client_id)
-        ~f:(fun per_client -> Ivar.fill per_client.cancel ()))
+        ~f:(fun per_client ->
+          t.on_client_forgotten per_client.client_state;
+          Ivar.fill per_client.cancel ()))
   ;;
 
   let last_response per_client = per_client.last_response
@@ -83,6 +104,8 @@ end = struct
     Ivar.fill per_client.cancel ();
     per_client.cancel <- Ivar.create ()
   ;;
+
+  let client_state per_client = per_client.client_state
 end
 
 module Request = struct
@@ -200,7 +223,15 @@ let create
     }
 ;;
 
-let implement (type response) ~on_client_and_server_out_of_sync ?for_first_request t f =
+let implement_with_client_state
+      (type response)
+      ~on_client_and_server_out_of_sync
+      ~create_client_state
+      ?(on_client_forgotten = ignore)
+      ?for_first_request
+      t
+      f
+  =
   (* make a new function to introduce a locally abstract type for diff *)
   let do_implement
     : type diff.
@@ -212,28 +243,32 @@ let implement (type response) ~on_client_and_server_out_of_sync ?for_first_reque
     fun ~response_module ~underlying_rpc ~query_equal ->
       let module M = (val response_module) in
       let for_first_request = Option.value for_first_request ~default:f in
-      let init connection_state query =
-        let%map response = for_first_request connection_state query in
+      let init connection_state client_state query =
+        let%map response = for_first_request connection_state client_state query in
         response, response
       in
-      let updates connection_state ~prev:(prev_query, prev_response) query =
+      let updates connection_state client_state ~prev:(prev_query, prev_response) query =
         let f = if query_equal prev_query query then f else for_first_request in
-        let%map new_ = f connection_state query in
+        let%map new_ = f connection_state client_state query in
         let diff = M.diffs ~from:prev_response ~to_:new_ in
         Response.Update diff, new_
       in
-      let cache = Cache.create () in
+      let cache = Cache.create ~on_client_forgotten in
       Rpc.Rpc.implement underlying_rpc (fun (connection_state, connection) request ->
         match Request.unstable_of_stable request with
         | Cancel_ongoing client_id ->
-          let per_client = Cache.find cache ~connection ~client_id in
+          let per_client =
+            Cache.find cache ~connection_state ~connection ~client_id ~create_client_state
+          in
           Cache.trigger_cancel per_client;
           return Response.Cancellation_successful
         | Forget_client { query = _; client_id } ->
           Cache.remove_and_trigger_cancel cache ~connection ~client_id;
           return Response.Cancellation_successful
         | Query { last_seqnum; query; client_id } ->
-          let per_client = Cache.find cache ~connection ~client_id in
+          let per_client =
+            Cache.find cache ~connection_state ~connection ~client_id ~create_client_state
+          in
           let prev =
             match Cache.last_response per_client, last_seqnum with
             | Some (prev, prev_seqnum), Some last_seqnum ->
@@ -268,12 +303,15 @@ let implement (type response) ~on_client_and_server_out_of_sync ?for_first_reque
               None
           in
           let response =
+            let client_state = Cache.client_state per_client in
             match prev with
             | Some prev ->
-              let%map response, userdata = updates connection_state ~prev query in
+              let%map response, userdata =
+                updates connection_state client_state ~prev query
+              in
               response, userdata
             | None ->
-              let%map response, userdata = init connection_state query in
+              let%map response, userdata = init connection_state client_state query in
               Response.Fresh response, userdata
           in
           let response_or_cancelled =
@@ -292,6 +330,20 @@ let implement (type response) ~on_client_and_server_out_of_sync ?for_first_reque
   in
   let (T { query_equal; response_module; underlying_rpc }) = t in
   do_implement ~response_module ~underlying_rpc ~query_equal
+;;
+
+let implement ~on_client_and_server_out_of_sync ?for_first_request t f =
+  let for_first_request =
+    Option.map for_first_request ~f:(fun f connection_state _client_state query ->
+      f connection_state query)
+  in
+  let f connection_state _client_state query = f connection_state query in
+  implement_with_client_state
+    ~on_client_and_server_out_of_sync
+    ~create_client_state:(fun _ -> ())
+    ?for_first_request
+    t
+    f
 ;;
 
 module Client = struct

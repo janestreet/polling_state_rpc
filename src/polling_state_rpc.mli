@@ -30,31 +30,49 @@ val create
     are made available. *)
 val implement
   :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
-  (** [on_client_and_server_out_of_sync] gets called when the client asks for
-      either diffs from a point different than the server expected or a fresh
-      response when the server was expecting it to ask for diffs.
+  (** [on_client_and_server_out_of_sync] gets called when the client asks for either diffs
+      from a point different than the server expected or a fresh response when the server
+      was expecting it to ask for diffs.
 
-      This can happen when the response type's bin_shape changes, which means
-      that the client will receive responses but won't be able to deserialize
-      them. It can also happen when the client's heartbeat times out.
+      This can happen when the response type's bin_shape changes, which means that the
+      client will receive responses but won't be able to deserialize them. It can also
+      happen when the client's heartbeat times out.
 
 
-      In both of these cases the server behaves reasonably (it falls back to
-      sending a fresh response), but passes a message to
-      [on_client_and_server_out_of_sync] because the situation is undesirable,
-      so server owners should be made aware so that it can be addressed.
+      In both of these cases the server behaves reasonably (it falls back to sending a
+      fresh response), but passes a message to [on_client_and_server_out_of_sync] because
+      the situation is undesirable, so server owners should be made aware so that it can
+      be addressed.
 
       Some good values for this parameter include:
       - [Log.Global.info_s] - the mismatch is logged, but otherwise not handled.
-      - [raise_s] - the server will get to skip sending the whole state across
-        the wire and will instead merely send an error. This is often a good
-        choice because usually if clients have trouble receiving one response,
-        they continue to have trouble receiving more responses (for example,
-        bin_shape errors don't go away naturally).
-  *)
+      - [raise_s] - the server will get to skip sending the whole state across the wire
+        and will instead merely send an error. This is often a good choice because usually
+        if clients have trouble receiving one response, they continue to have trouble
+        receiving more responses (for example, bin_shape errors don't go away naturally). *)
   -> ?for_first_request:('connection_state -> 'query -> 'response Deferred.t)
   -> ('query, 'response) t
   -> ('connection_state -> 'query -> 'response Deferred.t)
+  -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
+
+(** Similar to [implement], but with support for per-client state. This allows you to
+    support multiple clients, each with different server-side state, that share a single
+    [Rpc.Connection.t].
+
+    Note that, similar to the connection state, the client state cannot be shared between
+    multiple connections - if a client reconnects after disconnecting, it will be given a
+    new client state.
+
+    [on_client_forgotten] is called when the client calls [Client.forget_on_server], or
+    when the underlying connection is closed. *)
+val implement_with_client_state
+  :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
+  -> create_client_state:('connection_state -> 'client_state)
+  -> ?on_client_forgotten:('client_state -> unit)
+  -> ?for_first_request:
+       ('connection_state -> 'client_state -> 'query -> 'response Deferred.t)
+  -> ('query, 'response) t
+  -> ('connection_state -> 'client_state -> 'query -> 'response Deferred.t)
   -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
 
 module Client : sig
@@ -68,8 +86,8 @@ module Client : sig
 
   val create : ?initial_query:'query -> ('query, 'response) rpc -> ('query, 'response) t
 
-  (** Dispatch will call the rpc and return the corresponding response.  If you're listening
-      for responses via [bus], the response will also be communicated there. *)
+  (** Dispatch will call the rpc and return the corresponding response. If you're
+      listening for responses via [bus], the response will also be communicated there. *)
   val dispatch
     :  ('query, 'response) t
     -> Rpc.Connection.t
@@ -83,10 +101,12 @@ module Client : sig
     -> Rpc.Connection.t
     -> 'response Deferred.Or_error.t
 
-  (** Asks the server to forget any state related to the specified client. Use
-      this function on clients that might not be used again, so that the server
-      can free up memory. In addition, any queued and ongoing [dispatch]es will
-      get cancelled.
+  (** Asks the server to forget any state related to the specified client. Use this
+      function on clients that might not be used again, so that the server can free up
+      memory. If the server side of the RPC was built using [implement_with_client_state]
+      then a `on_client_forgotten` function (if provided) will be called.
+
+      In addition, any queued and ongoing [dispatch]es will get cancelled.
 
       Calling [dispatch] after [forget_on_server] works just fine, but
       will require the server to send the entire response, rather than merely

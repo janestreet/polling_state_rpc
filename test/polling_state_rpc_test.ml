@@ -664,3 +664,97 @@ let%expect_test "demonstrate that an [rpc_error] triggers a bug message." =
   let%bind () = Async.Tcp.Server.close_finished server in
   Async.Scheduler.yield_until_no_jobs_remain ()
 ;;
+
+let make_server_with_client_state
+      ?server_received_request
+      ?(block = fun () -> Deferred.unit)
+      ()
+  =
+  let make_counter () =
+    let count = ref 0 in
+    fun () ->
+      count := !count + 1;
+      !count
+  in
+  let implementation =
+    let items : T.t list =
+      [ { foo = "abc"; bar = 32 }; { foo = "def"; bar = 25 }; { foo = "ghi"; bar = 22 } ]
+    in
+    let number_of_queries = ref 0 in
+    let implementation _ _ query =
+      let count = !number_of_queries in
+      incr number_of_queries;
+      let found = List.find_exn items ~f:(fun { foo; _ } -> String.equal foo query) in
+      Deferred.return { found with bar = found.bar + count }
+    in
+    Polling_state_rpc.implement_with_client_state
+      rpc
+      ~on_client_and_server_out_of_sync:
+        (Expect_test_helpers_core.print_s ~hide_positions:true)
+      ~create_client_state:(fun (connection_number, client_counter) ->
+        let client_number = client_counter () in
+        let client_string = [%string "%{connection_number#Int}:%{client_number#Int}"] in
+        print_string [%string "%{client_string} created.\n"];
+        client_string)
+      ~on_client_forgotten:(fun client_string ->
+        print_string [%string "%{client_string} forgotten.\n"])
+      ~for_first_request:implementation
+      (fun _ _ query ->
+         let%bind () =
+           match server_received_request with
+           | Some server_received_request -> Mvar.put server_received_request ()
+           | None -> return ()
+         in
+         let%bind () = block () in
+         implementation () () query)
+  in
+  let connection_counter = make_counter () in
+  Pipe_transport_server.create
+    ~implementations:
+      (Rpc.Implementations.create_exn
+         ~implementations:[ implementation ]
+         ~on_unknown_rpc:`Close_connection)
+    ~initial_connection_state:(fun conn -> (connection_counter (), make_counter ()), conn)
+;;
+
+let%expect_test "demonstrate client state with destructor" =
+  let server = make_server_with_client_state () in
+  let%bind connection1 = Pipe_transport_server.client_connection server in
+  let client_1_1 = make_client () in
+  let client_1_2 = make_client () in
+  let client_2_1 = make_client () in
+  let%bind response = Polling_state_rpc.Client.dispatch client_1_1 connection1 "abc" in
+  print_s [%sexp (response : T.t Or_error.t)];
+  [%expect
+    {|
+    1:1 created.
+    ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
+    (Ok ((foo abc) (bar 32))) |}];
+  let%bind response = Polling_state_rpc.Client.dispatch client_1_2 connection1 "def" in
+  print_s [%sexp (response : T.t Or_error.t)];
+  [%expect
+    {|
+    1:2 created.
+    ((prev ()) (query def) (diff (Fresh ((foo def) (bar 26)))))
+    (Ok ((foo def) (bar 26))) |}];
+  let%bind connection2 = Pipe_transport_server.client_connection server in
+  let%bind response = Polling_state_rpc.Client.dispatch client_2_1 connection2 "ghi" in
+  print_s [%sexp (response : T.t Or_error.t)];
+  [%expect
+    {|
+    2:1 created.
+    ((prev ()) (query ghi) (diff (Fresh ((foo ghi) (bar 24)))))
+    (Ok ((foo ghi) (bar 24))) |}];
+  let%bind () =
+    Polling_state_rpc.Client.forget_on_server client_1_1 connection1 >>| Or_error.ok_exn
+  in
+  [%expect {| 1:1 forgotten. |}];
+  let%bind () = Rpc.Connection.close connection1 in
+  let%bind () = Rpc.Connection.close_finished connection1 in
+  let%bind () = Async.Scheduler.yield_until_no_jobs_remain () in
+  [%expect {| 1:2 forgotten. |}];
+  Pipe_transport_server.shutdown server;
+  let%bind () = Async.Scheduler.yield_until_no_jobs_remain () in
+  [%expect {| 2:1 forgotten. |}];
+  return ()
+;;
