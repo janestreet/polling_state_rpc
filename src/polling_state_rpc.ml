@@ -83,11 +83,9 @@ end = struct
 
   let remove_and_trigger_cancel t ~connection ~client_id =
     Option.iter (find_by_connection t.connections ~connection) ~f:(fun per_connection ->
-      Option.iter
-        (Hashtbl.find_and_remove per_connection client_id)
-        ~f:(fun per_client ->
-          t.on_client_forgotten per_client.client_state;
-          Ivar.fill per_client.cancel ()))
+      Option.iter (Hashtbl.find_and_remove per_connection client_id) ~f:(fun per_client ->
+        t.on_client_forgotten per_client.client_state;
+        Ivar.fill per_client.cancel ()))
   ;;
 
   let last_response per_client = per_client.last_response
@@ -295,9 +293,9 @@ let implement_with_client_state
                 [%message
                   [%here]
                     "A polling state RPC client has requested a fresh response, but the \
-                     server expected it to have the seqnum of the latest diffs. The \
-                     server will send a fresh response as requested. This likely means \
-                     that the client had trouble receiving the last RPC response."
+                     server expected it to have the seqnum of the latest diffs. The server \
+                     will send a fresh response as requested. This likely means that the \
+                     client had trouble receiving the last RPC response."
                     (rpc_name : string)
                     (rpc_version : int)];
               None
@@ -346,6 +344,53 @@ let implement ~on_client_and_server_out_of_sync ?for_first_request t f =
     f
 ;;
 
+let implement_via_bus
+      ~on_client_and_server_out_of_sync
+      ~create_client_state
+      ?on_client_forgotten
+      rpc
+      f
+  =
+  implement_with_client_state
+    ~on_client_and_server_out_of_sync
+    ~create_client_state:(fun connection_state ->
+      Mvar.create (), ref (fun () -> ()), create_client_state connection_state)
+    ?on_client_forgotten:
+      (Option.map
+         on_client_forgotten
+         ~f:
+           (fun
+             on_client_forgotten
+             (_most_recent_unsent_response, _unsubscribe, client_state)
+             -> on_client_forgotten client_state))
+    rpc
+    ~for_first_request:
+      (fun
+        connection_state (most_recent_unsent_response, unsubscribe, client_state) query ->
+        (* Since this is the first response for this query, we need to clean up
+           the mvar and the bus subscriber from the previous query. *)
+        let (_ : 'response option) = Mvar.take_now most_recent_unsent_response in
+        !unsubscribe ();
+        (* Then we can set up the bus subscription to the new query. *)
+        let bus = f connection_state client_state query in
+        let subscriber =
+          Bus.subscribe_exn bus [%here] ~f:(fun response ->
+            Mvar.set most_recent_unsent_response response)
+        in
+        (unsubscribe := fun () -> Bus.unsubscribe bus subscriber);
+        (* Finally, we'll wait for the bus to publish something to the mvar so
+           we can return it as the response. *)
+        Mvar.take most_recent_unsent_response)
+    (fun _connection_state
+      (most_recent_unsent_response, _unsubscribe, _client_state)
+      _query ->
+      (* For all polls except the first one for each query, we can simply wait
+         for the current bus to publish a new response. We ignore the query,
+         because we know that the bus subscription only ever corresponds to
+         the current query. *)
+      Mvar.take most_recent_unsent_response)
+;;
+
 module Client = struct
   type ('a, 'b) x = ('a, 'b) t
 
@@ -383,8 +428,7 @@ module Client = struct
       | None -> Deferred.Or_error.ok_unit
       (* If the sequencer isn't running anything right now, then we can co-opt it
          for this query. *)
-      | Some _ when Throttle.num_jobs_running t.sequencer = 0 ->
-        Deferred.Or_error.ok_unit
+      | Some _ when Throttle.num_jobs_running t.sequencer = 0 -> Deferred.Or_error.ok_unit
       (* If the current query is the same as the last one, then we're fine
          because the sequencer is already running that kind of query. *)
       | Some q' when t.query_equal q q' -> Deferred.Or_error.ok_unit

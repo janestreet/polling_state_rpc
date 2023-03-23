@@ -75,6 +75,28 @@ val implement_with_client_state
   -> ('connection_state -> 'client_state -> 'query -> 'response Deferred.t)
   -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
 
+(** Like [implement], except the callback is invoked only once per query, and
+    must return a bus instead of a single result. Each time a client polls, it
+    will receive the newest response that it has not yet seen. If it has seen
+    the newest response, then the RPC implementation will block until there is
+    a newer response.
+
+    This function immediately subscribes to the returned bus and cancels any
+    previous subscriptions each time it invokes the callback. It is recommended
+    that the bus use [Allow_and_send_last_value], so that each new query
+    doesn't miss the first response for each query (or even raise, if
+    [on_subscription_after_first_write] is set to [Raise]). *)
+val implement_via_bus
+  :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
+  -> create_client_state:('connection_state -> 'client_state)
+  -> ?on_client_forgotten:('client_state -> unit)
+  -> ('query, 'response) t
+  -> ('connection_state
+      -> 'client_state
+      -> 'query
+      -> ('response -> unit, [> read ]) Bus.t)
+  -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
+
 module Client : sig
   type ('query, 'response) rpc := ('query, 'response) t
 
