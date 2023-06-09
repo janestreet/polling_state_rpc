@@ -85,7 +85,7 @@ end = struct
     Option.iter (find_by_connection t.connections ~connection) ~f:(fun per_connection ->
       Option.iter (Hashtbl.find_and_remove per_connection client_id) ~f:(fun per_client ->
         t.on_client_forgotten per_client.client_state;
-        Ivar.fill per_client.cancel ()))
+        Ivar.fill_exn per_client.cancel ()))
   ;;
 
   let last_response per_client = per_client.last_response
@@ -99,7 +99,7 @@ end = struct
   let wait_for_cancel per_client = Ivar.read per_client.cancel
 
   let trigger_cancel per_client =
-    Ivar.fill per_client.cancel ();
+    Ivar.fill_exn per_client.cancel ();
     per_client.cancel <- Ivar.create ()
   ;;
 
@@ -239,92 +239,92 @@ let implement_with_client_state
       -> _
     =
     fun ~response_module ~underlying_rpc ~query_equal ->
-      let module M = (val response_module) in
-      let for_first_request = Option.value for_first_request ~default:f in
-      let init connection_state client_state query =
-        let%map response = for_first_request connection_state client_state query in
-        response, response
-      in
-      let updates connection_state client_state ~prev:(prev_query, prev_response) query =
-        let f = if query_equal prev_query query then f else for_first_request in
-        let%map new_ = f connection_state client_state query in
-        let diff = M.diffs ~from:prev_response ~to_:new_ in
-        Response.Update diff, new_
-      in
-      let cache = Cache.create ~on_client_forgotten in
-      Rpc.Rpc.implement underlying_rpc (fun (connection_state, connection) request ->
-        match Request.unstable_of_stable request with
-        | Cancel_ongoing client_id ->
-          let per_client =
-            Cache.find cache ~connection_state ~connection ~client_id ~create_client_state
-          in
-          Cache.trigger_cancel per_client;
-          return Response.Cancellation_successful
-        | Forget_client { query = _; client_id } ->
-          Cache.remove_and_trigger_cancel cache ~connection ~client_id;
-          return Response.Cancellation_successful
-        | Query { last_seqnum; query; client_id } ->
-          let per_client =
-            Cache.find cache ~connection_state ~connection ~client_id ~create_client_state
-          in
-          let prev =
-            match Cache.last_response per_client, last_seqnum with
-            | Some (prev, prev_seqnum), Some last_seqnum ->
-              (match Seqnum.equal prev_seqnum last_seqnum with
-               | true -> Some prev
-               | false ->
-                 let rpc_name = Rpc.Rpc.name underlying_rpc in
-                 let rpc_version = Rpc.Rpc.version underlying_rpc in
-                 on_client_and_server_out_of_sync
-                   [%message
-                     [%here]
-                       "A polling state RPC client has requested diffs from a seqnum that \
-                        the server does not have, so the server is sending a fresh \
-                        response instead. This likely means that the client had trouble \
-                        receiving the last RPC response."
-                       (rpc_name : string)
-                       (rpc_version : int)];
-                 None)
-            | None, Some _ | None, None -> None
-            | Some _, None ->
-              let rpc_name = Rpc.Rpc.name underlying_rpc in
-              let rpc_version = Rpc.Rpc.version underlying_rpc in
-              on_client_and_server_out_of_sync
-                [%message
-                  [%here]
-                    "A polling state RPC client has requested a fresh response, but the \
-                     server expected it to have the seqnum of the latest diffs. The server \
-                     will send a fresh response as requested. This likely means that the \
-                     client had trouble receiving the last RPC response."
-                    (rpc_name : string)
-                    (rpc_version : int)];
-              None
-          in
-          let response =
-            let client_state = Cache.client_state per_client in
-            match prev with
-            | Some prev ->
-              let%map response, userdata =
-                updates connection_state client_state ~prev query
-              in
-              response, userdata
-            | None ->
-              let%map response, userdata = init connection_state client_state query in
-              Response.Fresh response, userdata
-          in
-          let response_or_cancelled =
-            choose
-              [ choice response (fun r -> `Response r)
-              ; choice (Cache.wait_for_cancel per_client) (fun () -> `Cancelled)
-              ]
-          in
-          (match%map response_or_cancelled with
-           | `Response (response, userdata) ->
-             let new_seqnum = Cache.set per_client (query, userdata) in
-             Cache.trigger_cancel per_client;
-             Response.Response { new_seqnum; response }
-           | `Cancelled ->
-             Exn.raise_without_backtrace (Failure "this request was cancelled")))
+    let module M = (val response_module) in
+    let for_first_request = Option.value for_first_request ~default:f in
+    let init connection_state client_state query =
+      let%map response = for_first_request connection_state client_state query in
+      response, response
+    in
+    let updates connection_state client_state ~prev:(prev_query, prev_response) query =
+      let f = if query_equal prev_query query then f else for_first_request in
+      let%map new_ = f connection_state client_state query in
+      let diff = M.diffs ~from:prev_response ~to_:new_ in
+      Response.Update diff, new_
+    in
+    let cache = Cache.create ~on_client_forgotten in
+    Rpc.Rpc.implement underlying_rpc (fun (connection_state, connection) request ->
+      match Request.unstable_of_stable request with
+      | Cancel_ongoing client_id ->
+        let per_client =
+          Cache.find cache ~connection_state ~connection ~client_id ~create_client_state
+        in
+        Cache.trigger_cancel per_client;
+        return Response.Cancellation_successful
+      | Forget_client { query = _; client_id } ->
+        Cache.remove_and_trigger_cancel cache ~connection ~client_id;
+        return Response.Cancellation_successful
+      | Query { last_seqnum; query; client_id } ->
+        let per_client =
+          Cache.find cache ~connection_state ~connection ~client_id ~create_client_state
+        in
+        let prev =
+          match Cache.last_response per_client, last_seqnum with
+          | Some (prev, prev_seqnum), Some last_seqnum ->
+            (match Seqnum.equal prev_seqnum last_seqnum with
+             | true -> Some prev
+             | false ->
+               let rpc_name = Rpc.Rpc.name underlying_rpc in
+               let rpc_version = Rpc.Rpc.version underlying_rpc in
+               on_client_and_server_out_of_sync
+                 [%message
+                   [%here]
+                     "A polling state RPC client has requested diffs from a seqnum that \
+                      the server does not have, so the server is sending a fresh \
+                      response instead. This likely means that the client had trouble \
+                      receiving the last RPC response."
+                     (rpc_name : string)
+                     (rpc_version : int)];
+               None)
+          | None, Some _ | None, None -> None
+          | Some _, None ->
+            let rpc_name = Rpc.Rpc.name underlying_rpc in
+            let rpc_version = Rpc.Rpc.version underlying_rpc in
+            on_client_and_server_out_of_sync
+              [%message
+                [%here]
+                  "A polling state RPC client has requested a fresh response, but the \
+                   server expected it to have the seqnum of the latest diffs. The server \
+                   will send a fresh response as requested. This likely means that the \
+                   client had trouble receiving the last RPC response."
+                  (rpc_name : string)
+                  (rpc_version : int)];
+            None
+        in
+        let response =
+          let client_state = Cache.client_state per_client in
+          match prev with
+          | Some prev ->
+            let%map response, userdata =
+              updates connection_state client_state ~prev query
+            in
+            response, userdata
+          | None ->
+            let%map response, userdata = init connection_state client_state query in
+            Response.Fresh response, userdata
+        in
+        let response_or_cancelled =
+          choose
+            [ choice response (fun r -> `Response r)
+            ; choice (Cache.wait_for_cancel per_client) (fun () -> `Cancelled)
+            ]
+        in
+        (match%map response_or_cancelled with
+         | `Response (response, userdata) ->
+           let new_seqnum = Cache.set per_client (query, userdata) in
+           Cache.trigger_cancel per_client;
+           Response.Response { new_seqnum; response }
+         | `Cancelled ->
+           Exn.raise_without_backtrace (Failure "this request was cancelled")))
   in
   let (T { query_equal; response_module; underlying_rpc }) = t in
   do_implement ~response_module ~underlying_rpc ~query_equal
@@ -607,18 +607,18 @@ module Private_for_testing = struct
         -> (response option -> query -> (response, diff list) Response.t -> response)
       =
       fun ~fold ~response_module ->
-        let module M = (val response_module) in
-        let fold prev query (resp : (response, diff list) Response.t) =
-          let resp' =
-            match resp with
-            | Response.Fresh r -> Response'.Fresh r
-            | Update diffs ->
-              Update { t = diffs; sexp_of = [%sexp_of: M.Update.Diff.t list] }
-          in
-          introspect prev query resp';
-          fold prev query resp
+      let module M = (val response_module) in
+      let fold prev query (resp : (response, diff list) Response.t) =
+        let resp' =
+          match resp with
+          | Response.Fresh r -> Response'.Fresh r
+          | Update diffs ->
+            Update { t = diffs; sexp_of = [%sexp_of: M.Update.Diff.t list] }
         in
-        fold
+        introspect prev query resp';
+        fold prev query resp
+      in
+      fold
     in
     let (T client) = Client.create ?initial_query t in
     let new_fold = make_fold ~fold:client.fold ~response_module:client.response_module in
