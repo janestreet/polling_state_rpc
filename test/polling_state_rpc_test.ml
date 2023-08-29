@@ -842,7 +842,7 @@ let%test_module "implement_via_bus" =
           ~on_client_and_server_out_of_sync:
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
-          (fun _connection_state _client_state _query -> bus)
+          (fun _connection_state _client_state _query -> return bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let client = make_client () in
@@ -898,6 +898,96 @@ let%test_module "implement_via_bus" =
         return ())
     ;;
 
+    let%expect_test "single client, multiple queries" =
+      let true_bus =
+        Bus.create_exn
+          [%here]
+          Arity1
+          ~on_subscription_after_first_write:Allow_and_send_last_value
+          ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+      in
+      let false_bus =
+        Bus.create_exn
+          [%here]
+          Arity1
+          ~on_subscription_after_first_write:Allow_and_send_last_value
+          ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+      in
+      let implementation =
+        Polling_state_rpc.implement_via_bus
+          ~create_client_state:(fun _connection_state -> ())
+          ~on_client_and_server_out_of_sync:
+            (Expect_test_helpers_core.print_s ~hide_positions:true)
+          rpc
+          (fun _connection_state _client_state query ->
+             if query then return true_bus else return false_bus)
+      in
+      with_connection_to_server implementation ~f:(fun connection ->
+        let query client query =
+          Polling_state_rpc.Client.dispatch client connection query
+        in
+        let push query n = Bus.write (if query then true_bus else false_bus) n in
+        let client = make_client () in
+        (* make an initial query *)
+        push true 0;
+        let%bind response = query client true in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect
+          {|
+          ((prev ()) (query true) (diff (Fresh 0)))
+          (Ok 0) |}];
+        (* redispatch and wait for a response *)
+        let response = query client true in
+        push true 1;
+        let%bind response = response in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect
+          {|
+          ((prev (0)) (query true) (diff (Update (1))))
+          (Ok 1) |}];
+        (* switch to a different query *)
+        let response = query client false in
+        push false 2;
+        let%bind () = actually_yield_until_no_jobs_remain () in
+        [%expect {| ((prev (1)) (query false) (diff (Update (2)))) |}];
+        let%bind response = response in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect {| (Ok 2) |}];
+        (* redispatch a query, but abort before it resolves *)
+        let aborted = query client false in
+        let%bind () =
+          (* wait for the server to receive the response that we're about to abort *)
+          Async.Scheduler.yield_until_no_jobs_remain ()
+        in
+        let%bind response = query client true in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect
+          {|
+          ((prev (2)) (query true) (diff (Update (1))))
+          (Ok 1) |}];
+        let response = query client true in
+        push true 3;
+        let%bind response = response in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect
+          {|
+          ((prev (1)) (query true) (diff (Update (3))))
+          (Ok 3) |}];
+        (* ensure that the aborted request eventually resolves *)
+        let%bind aborted = aborted in
+        print_s [%sexp (aborted : int Or_error.t)];
+        [%expect
+          {|
+          (Error
+           ((rpc_error
+             (Uncaught_exn
+              ((location "server-side rpc computation")
+               (exn (monitor.ml.Error (Failure "this request was cancelled"))))))
+            (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
+            (rpc_name foo) (rpc_version 0))) |}];
+        return ())
+    ;;
+
     let%expect_test "multiple clients, single query" =
       let bus =
         Bus.create_exn
@@ -912,7 +1002,7 @@ let%test_module "implement_via_bus" =
           ~on_client_and_server_out_of_sync:
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
-          (fun _connection_state _client_state _query -> bus)
+          (fun _connection_state _client_state _query -> return bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let query client = Polling_state_rpc.Client.dispatch client connection true in
@@ -967,7 +1057,7 @@ let%test_module "implement_via_bus" =
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
           (fun _connection_state _client_state query ->
-             if query then true_bus else false_bus)
+             if query then return true_bus else return false_bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let query client query =
@@ -1021,7 +1111,7 @@ let%test_module "implement_via_bus" =
           ~on_client_and_server_out_of_sync:
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
-          (fun _connection_state _client_state _query -> bus)
+          (fun _connection_state _client_state _query -> return bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let query client query =
@@ -1061,7 +1151,7 @@ let%test_module "implement_via_bus" =
           ~on_client_and_server_out_of_sync:
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
-          (fun _connection_state _client_state _query -> bus)
+          (fun _connection_state _client_state _query -> return bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let query client query =
@@ -1120,7 +1210,7 @@ let%test_module "implement_via_bus" =
           (fun _connection_state client_state _query ->
              incr client_state;
              print_s [%message (!client_state : int)];
-             bus)
+             return bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let query client query =
@@ -1161,6 +1251,57 @@ let%test_module "implement_via_bus" =
           {|
         (on_client_forgotten (!client_state 1))
         (forget_response (Ok ())) |}];
+        return ())
+    ;;
+
+    let%expect_test "async callback" =
+      let bus =
+        Bus.create_exn
+          [%here]
+          Arity1
+          ~on_subscription_after_first_write:Allow_and_send_last_value
+          ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+      in
+      let mvar = Mvar.create () in
+      let implementation =
+        Polling_state_rpc.implement_via_bus
+          ~create_client_state:(fun _connection_state -> ())
+          ~on_client_and_server_out_of_sync:
+            (Expect_test_helpers_core.print_s ~hide_positions:true)
+          rpc
+          (fun _connection_state _client_state _query ->
+             let%bind () = Mvar.take mvar in
+             return bus)
+      in
+      with_connection_to_server implementation ~f:(fun connection ->
+        let client = make_client () in
+        let query () = Polling_state_rpc.Client.dispatch client connection true in
+        let push n = Bus.write bus n in
+        let response = query () in
+        (* Even after pushing, the result will not be resolved yet. *)
+        push 0;
+        let%bind () = actually_yield_until_no_jobs_remain () in
+        print_s [%sexp (Deferred.peek response : int Or_error.t option)];
+        [%expect {| () |}];
+        (* Filling the mvar causes the response to become resolved. *)
+        push 1;
+        Mvar.set mvar ();
+        let%bind () = actually_yield_until_no_jobs_remain () in
+        let%bind response = response in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect
+          {|
+          ((prev ()) (query true) (diff (Fresh 1)))
+          (Ok 1) |}];
+        (* We already have the bus, so we do not call the callback again, and therefore we
+           do not block on the mvar getting filled again. *)
+        push 2;
+        let%bind response = query () in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect
+          {|
+          ((prev (1)) (query true) (diff (Update (2))))
+          (Ok 2) |}];
         return ())
     ;;
   end)

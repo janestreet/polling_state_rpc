@@ -186,19 +186,27 @@ module Response = struct
   ;;
 end
 
-module type Diffable = sig
+module type Response = sig
+  (** This is a subset of the diffable signature (without [to_diffs] and [of_diffs])
+      and with the diffable type also supporting bin_io *)
+
   type t [@@deriving bin_io]
 
-  include Diffable.S with type t := t
+  module Update : sig
+    type t [@@deriving bin_io, sexp]
+  end
+
+  val diffs : from:t -> to_:t -> Update.t
+  val update : t -> Update.t -> t
 end
 
 type ('query, 'response) t =
   | T :
       { response_module :
-          (module Diffable with type t = 'response and type Update.Diff.t = 'diff)
+          (module Response with type t = 'response and type Update.t = 'diff)
       ; query_equal : 'query -> 'query -> bool
       ; underlying_rpc :
-          ('query Request.Stable.t, ('response, 'diff list) Response.pair) Rpc.Rpc.t
+          ('query Request.Stable.t, ('response, 'diff) Response.pair) Rpc.Rpc.t
       }
       -> ('query, 'response) t
 
@@ -210,7 +218,7 @@ let create
       ~version
       ~query_equal
       ~bin_query
-      (module M : Diffable with type t = a)
+      (module M : Response with type t = a)
   =
   let bin_response = Response.bin_pair M.bin_t M.Update.bin_t in
   let bin_query = Request.Stable.bin_t bin_query in
@@ -233,9 +241,8 @@ let implement_with_client_state
   (* make a new function to introduce a locally abstract type for diff *)
   let do_implement
     : type diff.
-      response_module:
-        (module Diffable with type t = response and type Update.Diff.t = diff)
-      -> underlying_rpc:(_, (response, diff list) Response.pair) Rpc.Rpc.t
+      response_module:(module Response with type t = response and type Update.t = diff)
+      -> underlying_rpc:(_, (response, diff) Response.pair) Rpc.Rpc.t
       -> _
     =
     fun ~response_module ~underlying_rpc ~query_equal ->
@@ -354,7 +361,7 @@ let implement_via_bus
   implement_with_client_state
     ~on_client_and_server_out_of_sync
     ~create_client_state:(fun connection_state ->
-      Mvar.create (), ref (fun () -> ()), create_client_state connection_state)
+      ref (Mvar.create ()), ref (fun () -> ()), create_client_state connection_state)
     ?on_client_forgotten:
       (Option.map
          on_client_forgotten
@@ -369,18 +376,26 @@ let implement_via_bus
         connection_state (most_recent_unsent_response, unsubscribe, client_state) query ->
         (* Since this is the first response for this query, we need to clean up
            the mvar and the bus subscriber from the previous query. *)
-        let (_ : 'response option) = Mvar.take_now most_recent_unsent_response in
+        let (_ : 'response option) = Mvar.take_now !most_recent_unsent_response in
+        (* We create a fresh mvar rather than re-using the existing one so that aborted
+           requests don't starve the mvar that we write to.
+
+           If you call [Mvar.take] on the same mvar twice, then each [Mvar.set] will only
+           determine at most one of the resulting [Deferred.t]s. Since there's no way to
+           abort an [Mvar.take], aborted requests cause us to fall behind the bus unless
+           we explicitly reset our state. *)
+        let mvar = Mvar.create () in
+        most_recent_unsent_response := mvar;
         !unsubscribe ();
         (* Then we can set up the bus subscription to the new query. *)
-        let bus = f connection_state client_state query in
+        let%bind bus = f connection_state client_state query in
         let subscriber =
-          Bus.subscribe_exn bus [%here] ~f:(fun response ->
-            Mvar.set most_recent_unsent_response response)
+          Bus.subscribe_exn bus [%here] ~f:(fun response -> Mvar.set mvar response)
         in
         (unsubscribe := fun () -> Bus.unsubscribe bus subscriber);
         (* Finally, we'll wait for the bus to publish something to the mvar so
            we can return it as the response. *)
-        Mvar.take most_recent_unsent_response)
+        Mvar.take mvar)
     (fun _connection_state
       (most_recent_unsent_response, _unsubscribe, _client_state)
       _query ->
@@ -388,7 +403,7 @@ let implement_via_bus
          for the current bus to publish a new response. We ignore the query,
          because we know that the bus subscription only ever corresponds to
          the current query. *)
-      Mvar.take most_recent_unsent_response)
+      Mvar.take !most_recent_unsent_response)
 ;;
 
 module Client = struct
@@ -404,11 +419,11 @@ module Client = struct
     ; client_id : Client_id.t
     ; bus : ('query -> 'response -> unit) Bus.Read_write.t
     ; response_module :
-        (module Diffable with type t = 'response and type Update.Diff.t = 'diff)
+        (module Response with type t = 'response and type Update.t = 'diff)
     ; query_equal : 'query -> 'query -> bool
     ; underlying_rpc :
-        ('query Request.Stable.t, ('response, 'diff list) Response.pair) Rpc.Rpc.t
-    ; fold : 'response option -> 'query -> ('response, 'diff list) Response.t -> 'response
+        ('query Request.Stable.t, ('response, 'diff) Response.pair) Rpc.Rpc.t
+    ; fold : 'response option -> 'query -> ('response, 'diff) Response.t -> 'response
     }
 
   type ('query, 'response) t =
@@ -601,19 +616,18 @@ module Private_for_testing = struct
     (* Make a new function to introduce a locally abstract type for [diff] *)
     let make_fold
       : type diff.
-        fold:(response option -> query -> (response, diff list) Response.t -> response)
+        fold:(response option -> query -> (response, diff) Response.t -> response)
         -> response_module:
-             (module Diffable with type t = response and type Update.Diff.t = diff)
-        -> (response option -> query -> (response, diff list) Response.t -> response)
+             (module Response with type t = response and type Update.t = diff)
+        -> (response option -> query -> (response, diff) Response.t -> response)
       =
       fun ~fold ~response_module ->
       let module M = (val response_module) in
-      let fold prev query (resp : (response, diff list) Response.t) =
+      let fold prev query (resp : (response, diff) Response.t) =
         let resp' =
           match resp with
           | Response.Fresh r -> Response'.Fresh r
-          | Update diffs ->
-            Update { t = diffs; sexp_of = [%sexp_of: M.Update.Diff.t list] }
+          | Update diffs -> Update { t = diffs; sexp_of = [%sexp_of: M.Update.t] }
         in
         introspect prev query resp';
         fold prev query resp

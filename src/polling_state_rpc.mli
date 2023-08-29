@@ -2,13 +2,18 @@ open! Core
 open! Async_kernel
 open! Async_rpc_kernel
 
-module type Diffable = sig
-  (** This is just the diffable signature but with the diffable type
-      also supporting bin_io. *)
+module type Response = sig
+  (** This is a subset of the diffable signature (without [to_diffs] and [of_diffs])
+      and with the diffable type also supporting bin_io *)
 
   type t [@@deriving bin_io]
 
-  include Diffable.S with type t := t
+  module Update : sig
+    type t [@@deriving bin_io, sexp]
+  end
+
+  val diffs : from:t -> to_:t -> Update.t
+  val update : t -> Update.t -> t
 end
 
 (** The type representing the RPC itself.  Similar to Rpc.Rpc.t and its friends. *)
@@ -21,7 +26,7 @@ val create
   -> version:int
   -> query_equal:('query -> 'query -> bool)
   -> bin_query:'query Bin_prot.Type_class.t
-  -> (module Diffable with type t = 'response)
+  -> (module Response with type t = 'response)
   -> ('query, 'response) t
 
 (** Handling the first request and handling the remaining requests is different because
@@ -94,7 +99,7 @@ val implement_via_bus
   -> ('connection_state
       -> 'client_state
       -> 'query
-      -> ('response -> unit, [> read ]) Bus.t)
+      -> ('response -> unit, [> read ]) Bus.t Deferred.t)
   -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
 
 module Client : sig

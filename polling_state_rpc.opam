@@ -15,7 +15,6 @@ depends: [
   "async_rpc_kernel"
   "core"
   "core_kernel"
-  "diffable"
   "ppx_jane"
   "dune"             {>= "2.0.0"}
 ]
