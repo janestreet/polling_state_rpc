@@ -213,12 +213,12 @@ type ('query, 'response) t =
 let name (T { underlying_rpc; _ }) = Rpc.Rpc.name underlying_rpc
 
 let create
-      (type a)
-      ~name
-      ~version
-      ~query_equal
-      ~bin_query
-      (module M : Response with type t = a)
+  (type a)
+  ~name
+  ~version
+  ~query_equal
+  ~bin_query
+  (module M : Response with type t = a)
   =
   let bin_response = Response.bin_pair M.bin_t M.Update.bin_t in
   let bin_query = Request.Stable.bin_t bin_query in
@@ -230,13 +230,13 @@ let create
 ;;
 
 let implement_with_client_state
-      (type response)
-      ~on_client_and_server_out_of_sync
-      ~create_client_state
-      ?(on_client_forgotten = ignore)
-      ?for_first_request
-      t
-      f
+  (type response)
+  ~on_client_and_server_out_of_sync
+  ~create_client_state
+  ?(on_client_forgotten = ignore)
+  ?for_first_request
+  t
+  f
   =
   (* make a new function to introduce a locally abstract type for diff *)
   let do_implement
@@ -352,11 +352,11 @@ let implement ~on_client_and_server_out_of_sync ?for_first_request t f =
 ;;
 
 let implement_via_bus
-      ~on_client_and_server_out_of_sync
-      ~create_client_state
-      ?on_client_forgotten
-      rpc
-      f
+  ~on_client_and_server_out_of_sync
+  ~create_client_state
+  ?on_client_forgotten
+  rpc
+  f
   =
   implement_with_client_state
     ~on_client_and_server_out_of_sync
@@ -374,31 +374,31 @@ let implement_via_bus
     ~for_first_request:
       (fun
         connection_state (most_recent_unsent_response, unsubscribe, client_state) query ->
-        (* Since this is the first response for this query, we need to clean up
+      (* Since this is the first response for this query, we need to clean up
            the mvar and the bus subscriber from the previous query. *)
-        let (_ : 'response option) = Mvar.take_now !most_recent_unsent_response in
-        (* We create a fresh mvar rather than re-using the existing one so that aborted
+      let (_ : 'response option) = Mvar.take_now !most_recent_unsent_response in
+      (* We create a fresh mvar rather than re-using the existing one so that aborted
            requests don't starve the mvar that we write to.
 
            If you call [Mvar.take] on the same mvar twice, then each [Mvar.set] will only
            determine at most one of the resulting [Deferred.t]s. Since there's no way to
            abort an [Mvar.take], aborted requests cause us to fall behind the bus unless
            we explicitly reset our state. *)
-        let mvar = Mvar.create () in
-        most_recent_unsent_response := mvar;
-        !unsubscribe ();
-        (* Then we can set up the bus subscription to the new query. *)
-        let%bind bus = f connection_state client_state query in
-        let subscriber =
-          Bus.subscribe_exn bus [%here] ~f:(fun response -> Mvar.set mvar response)
-        in
-        (unsubscribe := fun () -> Bus.unsubscribe bus subscriber);
-        (* Finally, we'll wait for the bus to publish something to the mvar so
+      let mvar = Mvar.create () in
+      most_recent_unsent_response := mvar;
+      !unsubscribe ();
+      (* Then we can set up the bus subscription to the new query. *)
+      let%bind bus = f connection_state client_state query in
+      let subscriber =
+        Bus.subscribe_exn bus [%here] ~f:(fun response -> Mvar.set mvar response)
+      in
+      (unsubscribe := fun () -> Bus.unsubscribe bus subscriber);
+      (* Finally, we'll wait for the bus to publish something to the mvar so
            we can return it as the response. *)
-        Mvar.take mvar)
+      Mvar.take mvar)
     (fun _connection_state
-      (most_recent_unsent_response, _unsubscribe, _client_state)
-      _query ->
+         (most_recent_unsent_response, _unsubscribe, _client_state)
+         _query ->
       (* For all polls except the first one for each query, we can simply wait
          for the current bus to publish a new response. We ignore the query,
          because we know that the bus subscription only ever corresponds to
@@ -608,10 +608,10 @@ module Private_for_testing = struct
   end
 
   let create_client
-        (type query response)
-        ?initial_query
-        (t : (query, response) t)
-        ~introspect
+    (type query response)
+    ?initial_query
+    (t : (query, response) t)
+    ~introspect
     =
     (* Make a new function to introduce a locally abstract type for [diff] *)
     let make_fold
@@ -619,7 +619,10 @@ module Private_for_testing = struct
         fold:(response option -> query -> (response, diff) Response.t -> response)
         -> response_module:
              (module Response with type t = response and type Update.t = diff)
-        -> (response option -> query -> (response, diff) Response.t -> response)
+        -> response option
+        -> query
+        -> (response, diff) Response.t
+        -> response
       =
       fun ~fold ~response_module ->
       let module M = (val response_module) in

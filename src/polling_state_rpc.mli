@@ -35,7 +35,7 @@ val create
     are made available. *)
 val implement
   :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
-  (** [on_client_and_server_out_of_sync] gets called when the client asks for either diffs
+       (** [on_client_and_server_out_of_sync] gets called when the client asks for either diffs
       from a point different than the server expected or a fresh response when the server
       was expecting it to ask for diffs.
 

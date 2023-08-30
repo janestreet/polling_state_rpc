@@ -58,13 +58,13 @@ let make_server ?server_received_request ?(block = fun () -> Deferred.unit) () =
         (Expect_test_helpers_core.print_s ~hide_positions:true)
       ~for_first_request:implementation
       (fun _ query ->
-         let%bind () =
-           match server_received_request with
-           | Some server_received_request -> Mvar.put server_received_request ()
-           | None -> return ()
-         in
-         let%bind () = block () in
-         implementation () query)
+      let%bind () =
+        match server_received_request with
+        | Some server_received_request -> Mvar.put server_received_request ()
+        | None -> return ()
+      in
+      let%bind () = block () in
+      implementation () query)
   in
   let open Deferred.Or_error.Let_syntax in
   let%map server =
@@ -676,9 +676,9 @@ let%expect_test "demonstrate that an [rpc_error] triggers a bug message." =
 ;;
 
 let make_server_with_client_state
-      ?server_received_request
-      ?(block = fun () -> Deferred.unit)
-      ()
+  ?server_received_request
+  ?(block = fun () -> Deferred.unit)
+  ()
   =
   let make_counter () =
     let count = ref 0 in
@@ -710,13 +710,13 @@ let make_server_with_client_state
         print_string [%string "%{client_string} forgotten.\n"])
       ~for_first_request:implementation
       (fun _ _ query ->
-         let%bind () =
-           match server_received_request with
-           | Some server_received_request -> Mvar.put server_received_request ()
-           | None -> return ()
-         in
-         let%bind () = block () in
-         implementation () () query)
+        let%bind () =
+          match server_received_request with
+          | Some server_received_request -> Mvar.put server_received_request ()
+          | None -> return ()
+        in
+        let%bind () = block () in
+        implementation () () query)
   in
   let connection_counter = make_counter () in
   Pipe_transport_server.create
@@ -920,7 +920,7 @@ let%test_module "implement_via_bus" =
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
           (fun _connection_state _client_state query ->
-             if query then return true_bus else return false_bus)
+            if query then return true_bus else return false_bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let query client query =
@@ -1057,7 +1057,7 @@ let%test_module "implement_via_bus" =
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
           (fun _connection_state _client_state query ->
-             if query then return true_bus else return false_bus)
+            if query then return true_bus else return false_bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let query client query =
@@ -1208,9 +1208,9 @@ let%test_module "implement_via_bus" =
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
           (fun _connection_state client_state _query ->
-             incr client_state;
-             print_s [%message (!client_state : int)];
-             return bus)
+            incr client_state;
+            print_s [%message (!client_state : int)];
+            return bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let query client query =
@@ -1270,8 +1270,8 @@ let%test_module "implement_via_bus" =
             (Expect_test_helpers_core.print_s ~hide_positions:true)
           rpc
           (fun _connection_state _client_state _query ->
-             let%bind () = Mvar.take mvar in
-             return bus)
+            let%bind () = Mvar.take mvar in
+            return bus)
       in
       with_connection_to_server implementation ~f:(fun connection ->
         let client = make_client () in
