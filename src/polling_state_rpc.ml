@@ -619,10 +619,7 @@ module Private_for_testing = struct
         fold:(response option -> query -> (response, diff) Response.t -> response)
         -> response_module:
              (module Response with type t = response and type Update.t = diff)
-        -> response option
-        -> query
-        -> (response, diff) Response.t
-        -> response
+        -> (response option -> query -> (response, diff) Response.t -> response)
       =
       fun ~fold ~response_module ->
       let module M = (val response_module) in
