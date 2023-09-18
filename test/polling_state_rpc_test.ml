@@ -877,10 +877,10 @@ let%test_module "implement_via_bus" =
           ((prev (1)) (query true) (diff (Update (3))))
           (Ok 3) |}];
         let response1 = query () in
-        let%bind () = actually_yield_until_no_jobs_remain () in
-        let response2 = query () in
         push 4;
         push 5;
+        let%bind () = actually_yield_until_no_jobs_remain () in
+        let response2 = query () in
         let%bind response1 = response1 in
         print_s [%sexp (response1 : int Or_error.t)];
         [%expect
@@ -1172,8 +1172,7 @@ let%test_module "implement_via_bus" =
                 (exn (
                   monitor.ml.Error
                   ("Bus.subscribe_exn called after first write"
-                   ((subscribed_from
-                     lib/polling_state_rpc/src/polling_state_rpc.ml:LINE:COL)
+                   ((subscribed_from lib/polling_state_rpc/src/bus_state.ml:LINE:COL)
                     ((
                       bus (
                         (callback_arity Arity1)

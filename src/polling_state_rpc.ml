@@ -361,49 +361,26 @@ let implement_via_bus
   implement_with_client_state
     ~on_client_and_server_out_of_sync
     ~create_client_state:(fun connection_state ->
-      ref (Mvar.create ()), ref (fun () -> ()), create_client_state connection_state)
-    ?on_client_forgotten:
-      (Option.map
-         on_client_forgotten
-         ~f:
-           (fun
-             on_client_forgotten
-             (_most_recent_unsent_response, _unsubscribe, client_state)
-             -> on_client_forgotten client_state))
+      Bus_state.create (), create_client_state connection_state)
+    ~on_client_forgotten:(fun (bus_state, client_state) ->
+      Bus_state.unsubscribe bus_state;
+      Option.iter on_client_forgotten ~f:(fun on_client_forgotten ->
+        on_client_forgotten client_state))
     rpc
-    ~for_first_request:
-      (fun
-        connection_state (most_recent_unsent_response, unsubscribe, client_state) query ->
-      (* Since this is the first response for this query, we need to clean up
-           the mvar and the bus subscriber from the previous query. *)
-      let (_ : 'response option) = Mvar.take_now !most_recent_unsent_response in
-      (* We create a fresh mvar rather than re-using the existing one so that aborted
-           requests don't starve the mvar that we write to.
-
-           If you call [Mvar.take] on the same mvar twice, then each [Mvar.set] will only
-           determine at most one of the resulting [Deferred.t]s. Since there's no way to
-           abort an [Mvar.take], aborted requests cause us to fall behind the bus unless
-           we explicitly reset our state. *)
-      let mvar = Mvar.create () in
-      most_recent_unsent_response := mvar;
-      !unsubscribe ();
-      (* Then we can set up the bus subscription to the new query. *)
+    ~for_first_request:(fun connection_state (bus_state, client_state) query ->
+      (* Set up the bus subscription to the new query. *)
       let%bind bus = f connection_state client_state query in
-      let subscriber =
-        Bus.subscribe_exn bus [%here] ~f:(fun response -> Mvar.set mvar response)
-      in
-      (unsubscribe := fun () -> Bus.unsubscribe bus subscriber);
-      (* Finally, we'll wait for the bus to publish something to the mvar so
-           we can return it as the response. *)
-      Mvar.take mvar)
-    (fun _connection_state
-         (most_recent_unsent_response, _unsubscribe, _client_state)
-         _query ->
+      (* Subscribe to the new bus, unsubscribing to the previous bus if necessary *)
+      Bus_state.subscribe bus_state bus;
+      (* Wait for the bus to publish something to the [Bus_state.t] so we can return it as
+         the response. *)
+      Bus_state.take bus_state)
+    (fun _connection_state (bus_state, _client_state) _query ->
       (* For all polls except the first one for each query, we can simply wait
-         for the current bus to publish a new response. We ignore the query,
-         because we know that the bus subscription only ever corresponds to
-         the current query. *)
-      Mvar.take !most_recent_unsent_response)
+          for the current bus to publish a new response. We ignore the query,
+          because we know that the bus subscription only ever corresponds to
+          the current query. *)
+      Bus_state.take bus_state)
 ;;
 
 module Client = struct
