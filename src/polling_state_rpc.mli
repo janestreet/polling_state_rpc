@@ -9,7 +9,7 @@ module type Response = sig
   type t [@@deriving bin_io]
 
   module Update : sig
-    type t [@@deriving bin_io, sexp]
+    type t [@@deriving bin_io, sexp_of]
   end
 
   val diffs : from:t -> to_:t -> Update.t
