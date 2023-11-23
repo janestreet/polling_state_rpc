@@ -6,7 +6,7 @@ module T = struct
     { foo : string
     ; bar : int
     }
-  [@@deriving sexp, diff, bin_io]
+  [@@deriving sexp, legacy_diff, bin_io]
 end
 
 module T_incompatible = struct
@@ -15,7 +15,7 @@ module T_incompatible = struct
     ; bar : int
     ; added_field : int
     }
-  [@@deriving sexp, diff, bin_io]
+  [@@deriving sexp, legacy_diff, bin_io]
 end
 
 let rpc =
@@ -773,7 +773,7 @@ let%test_module "implement_via_bus" =
   (module struct
     module Response = struct
       include Int
-      include Diffable.Atomic.Make (Int)
+      include Legacy_diffable.Atomic.Make (Int)
     end
 
     let rpc =
