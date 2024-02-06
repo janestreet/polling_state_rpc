@@ -1303,5 +1303,53 @@ let%test_module "implement_via_bus" =
           (Ok 2) |}];
         return ())
     ;;
+
+    let%expect_test "sync callback - different behavior with Eager_deferred" =
+      (* This is the same test as "async callback" above. The behavior differences are
+         important to note. *)
+      let bus =
+        Bus.create_exn
+          [%here]
+          Arity1
+          ~on_subscription_after_first_write:Allow_and_send_last_value
+          ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+      in
+      let implementation =
+        Polling_state_rpc.implement_via_bus'
+          ~create_client_state:(fun _connection_state -> ())
+          ~on_client_and_server_out_of_sync:
+            (Expect_test_helpers_core.print_s ~hide_positions:true)
+          rpc
+          (fun _connection_state _client_state _query -> bus)
+      in
+      with_connection_to_server implementation ~f:(fun connection ->
+        let client = make_client () in
+        let query () = Polling_state_rpc.Client.dispatch client connection true in
+        let push n = Bus.write bus n in
+        let response = query () in
+        (* The bus itself is eager_deferred internally, so as soon as you push it's
+           active. *)
+        push 0;
+        let%bind () = actually_yield_until_no_jobs_remain () in
+        print_s [%sexp (Deferred.peek response : int Or_error.t option)];
+        [%expect
+          {|
+          ((prev ()) (query true) (diff (Fresh 0)))
+          ((Ok 0)) |}];
+        push 1;
+        let%bind () = actually_yield_until_no_jobs_remain () in
+        let%bind response = response in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect {|
+        (Ok 0) |}];
+        let%bind () = actually_yield_until_no_jobs_remain () in
+        let%bind response = query () in
+        print_s [%sexp (response : int Or_error.t)];
+        [%expect
+          {|
+        ((prev (0)) (query true) (diff (Update (1))))
+        (Ok 1) |}];
+        return ())
+    ;;
   end)
 ;;

@@ -13,6 +13,7 @@ depends: [
   "ocaml" {>= "4.14.0"}
   "async_kernel"
   "async_rpc_kernel"
+  "babel"
   "core"
   "core_kernel"
   "ppx_jane"

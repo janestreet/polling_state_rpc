@@ -211,6 +211,7 @@ type ('query, 'response) t =
       -> ('query, 'response) t
 
 let name (T { underlying_rpc; _ }) = Rpc.Rpc.name underlying_rpc
+let babel_generic_rpc (T { underlying_rpc; _ }) = Babel.Generic_rpc.Rpc underlying_rpc
 
 let create
   (type a)
@@ -369,8 +370,11 @@ let implement_via_bus
     rpc
     ~for_first_request:(fun connection_state (bus_state, client_state) query ->
       (* Set up the bus subscription to the new query. *)
-      let%bind bus = f connection_state client_state query in
-      (* Subscribe to the new bus, unsubscribing to the previous bus if necessary *)
+      let%bind.Eager_deferred bus = f connection_state client_state query in
+      (* Subscribe to the new bus, unsubscribing to the previous bus if necessary.
+         It is good to subscribe to the bus as immediately after receiving the bus
+         via Eager_deferred, such that the publisher to the bus has an accurate
+         count of subscribers from [Bus.num_subscribers]. *)
       Bus_state.subscribe bus_state bus;
       (* Wait for the bus to publish something to the [Bus_state.t] so we can return it as
          the response. *)
@@ -381,6 +385,22 @@ let implement_via_bus
           because we know that the bus subscription only ever corresponds to
           the current query. *)
       Bus_state.take bus_state)
+;;
+
+let implement_via_bus'
+  ~on_client_and_server_out_of_sync
+  ~create_client_state
+  ?on_client_forgotten
+  rpc
+  f
+  =
+  implement_via_bus
+    ~on_client_and_server_out_of_sync
+    ~create_client_state
+    ?on_client_forgotten
+    rpc
+    (fun connection_state client_state query ->
+    f connection_state client_state query |> Deferred.return)
 ;;
 
 module Client = struct

@@ -20,6 +20,7 @@ end
 type ('query, 'response) t
 
 val name : ('query, 'response) t -> string
+val babel_generic_rpc : _ t -> Babel.Generic_rpc.t
 
 val create
   :  name:string
@@ -100,6 +101,24 @@ val implement_via_bus
       -> 'client_state
       -> 'query
       -> ('response -> unit, [> read ]) Bus.t Deferred.t)
+  -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
+
+(** Like [implement_via_bus], except that the callback does not return a deferred.
+
+    [implement_via_bus'] will call [Bus.subscribe] immediately after the callback
+    returns. When the client is no longer polling for the given query, this will
+    call [Bus.unsubscribe'], meaning that [Bus.num_subscribers] will count the client
+    as a subscriber iff the client is still polling for this query.
+*)
+val implement_via_bus'
+  :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
+  -> create_client_state:('connection_state -> 'client_state)
+  -> ?on_client_forgotten:('client_state -> unit)
+  -> ('query, 'response) t
+  -> ('connection_state
+      -> 'client_state
+      -> 'query
+      -> ('response -> unit, [> read ]) Bus.t)
   -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
 
 module Client : sig
