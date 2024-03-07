@@ -211,6 +211,7 @@ type ('query, 'response) t =
       -> ('query, 'response) t
 
 let name (T { underlying_rpc; _ }) = Rpc.Rpc.name underlying_rpc
+let version (T { underlying_rpc; _ }) = Rpc.Rpc.version underlying_rpc
 let babel_generic_rpc (T { underlying_rpc; _ }) = Babel.Generic_rpc.Rpc underlying_rpc
 
 let create
@@ -226,7 +227,13 @@ let create
   T
     { query_equal
     ; response_module = (module M)
-    ; underlying_rpc = Rpc.Rpc.create ~name ~version ~bin_query ~bin_response
+    ; underlying_rpc =
+        Rpc.Rpc.create
+          ~name
+          ~version
+          ~bin_query
+          ~bin_response
+          ~include_in_error_count:Only_on_exn
     }
 ;;
 

@@ -20,6 +20,7 @@ end
 type ('query, 'response) t
 
 val name : ('query, 'response) t -> string
+val version : ('query, 'response) t -> int
 val babel_generic_rpc : _ t -> Babel.Generic_rpc.t
 
 val create
@@ -57,6 +58,9 @@ val implement
         if clients have trouble receiving one response, they continue to have trouble
         receiving more responses (for example, bin_shape errors don't go away naturally). *)
   -> ?for_first_request:('connection_state -> 'query -> 'response Deferred.t)
+       (** When provided, [for_first_request] is called instead of the primary implementation function 
+      for the first_request of a particular query.  This is so that you can respond immediately to 
+      the first request, but block on subsequent requests until there's an update to send. *)
   -> ('query, 'response) t
   -> ('connection_state -> 'query -> 'response Deferred.t)
   -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
