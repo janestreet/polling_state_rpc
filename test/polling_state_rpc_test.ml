@@ -120,20 +120,23 @@ let%expect_test "basic operations" =
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   let%bind response = Polling_state_rpc.Client.dispatch client connection "def" in
   print_s [%sexp (response : T.t)];
   [%expect
     {|
     ((prev (((foo abc) (bar 32)))) (query def)
      (diff (Update ((Foo def) (Bar 26)))))
-    ((foo def) (bar 26)) |}];
+    ((foo def) (bar 26))
+    |}];
   let%bind response = Polling_state_rpc.Client.redispatch client connection in
   print_s [%sexp (response : T.t)];
   [%expect
     {|
     ((prev (((foo def) (bar 26)))) (query def) (diff (Update ((Bar 27)))))
-    ((foo def) (bar 27)) |}];
+    ((foo def) (bar 27))
+    |}];
   let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
   let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -153,7 +156,8 @@ let%expect_test "initial-query" =
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
   let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -179,7 +183,8 @@ let%expect_test "simulate server restarting " =
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   (* using the second server *)
   let%bind response = Polling_state_rpc.Client.redispatch client connection2 in
   print_s [%sexp (response : T.t)];
@@ -187,7 +192,8 @@ let%expect_test "simulate server restarting " =
     {|
     ((prev (((foo abc) (bar 32)))) (query abc)
      (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   (* notice that "bar" didn't change to 33 even though it otherwise would have been *)
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
 ;;
@@ -207,27 +213,31 @@ let%expect_test "multiple clients on the same connection" =
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   let%bind response = Polling_state_rpc.Client.dispatch client2 connection "abc" in
   print_s [%sexp (response : T.t)];
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 33)))))
-    ((foo abc) (bar 33)) |}];
+    ((foo abc) (bar 33))
+    |}];
   let%bind response = Polling_state_rpc.Client.dispatch client1 connection "def" in
   print_s [%sexp (response : T.t)];
   [%expect
     {|
     ((prev (((foo abc) (bar 32)))) (query def)
      (diff (Update ((Foo def) (Bar 27)))))
-    ((foo def) (bar 27)) |}];
+    ((foo def) (bar 27))
+    |}];
   let%bind response = Polling_state_rpc.Client.dispatch client2 connection "def" in
   print_s [%sexp (response : T.t)];
   [%expect
     {|
     ((prev (((foo abc) (bar 33)))) (query def)
      (diff (Update ((Foo def) (Bar 28)))))
-    ((foo def) (bar 28)) |}];
+    ((foo def) (bar 28))
+    |}];
   let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
   let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -247,7 +257,8 @@ let%expect_test "simulate client disconnecting and reconnecting" =
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   let%bind () = Deferred.ok (Rpc.Connection.close connection) in
   let%bind () = Deferred.ok (Rpc.Connection.close_finished connection) in
   let%bind () = Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ()) in
@@ -261,14 +272,16 @@ let%expect_test "simulate client disconnecting and reconnecting" =
     {|
     ((prev (((foo abc) (bar 32)))) (query def)
      (diff (Fresh ((foo def) (bar 26)))))
-    ((foo def) (bar 26)) |}];
+    ((foo def) (bar 26))
+    |}];
   let%bind response = Polling_state_rpc.Client.dispatch client1 connection "ghi" in
   print_s [%sexp (response : T.t)];
   [%expect
     {|
     ((prev (((foo def) (bar 26)))) (query ghi)
      (diff (Update ((Foo ghi) (Bar 24)))))
-    ((foo ghi) (bar 24)) |}];
+    ((foo ghi) (bar 24))
+    |}];
   let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
   let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -312,7 +325,8 @@ let%expect_test "change query at a time that would otherwise cause blocking" =
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   (* Dispatching again on the same client changes the query.  Thus, the fact
      that we get a response from this second dispatch shows that the server is
      going through the "first request" code path for the latest poll request. *)
@@ -322,7 +336,8 @@ let%expect_test "change query at a time that would otherwise cause blocking" =
     {|
     ((prev (((foo abc) (bar 32)))) (query def)
      (diff (Update ((Foo def) (Bar 26)))))
-    ((foo def) (bar 26)) |}];
+    ((foo def) (bar 26))
+    |}];
   let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
   let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -345,7 +360,8 @@ let%expect_test "demonstrate that changing the query will cancel an ongoing requ
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   (* Fire off another rpc with the same query to get the blocking behavior. *)
   let unbound_response = Polling_state_rpc.Client.dispatch client connection "abc" in
   let%bind response = Polling_state_rpc.Client.dispatch client connection "def" in
@@ -354,7 +370,8 @@ let%expect_test "demonstrate that changing the query will cancel an ongoing requ
     {|
     ((prev (((foo abc) (bar 32)))) (query def)
      (diff (Update ((Foo def) (Bar 26)))))
-    ((foo def) (bar 26)) |}];
+    ((foo def) (bar 26))
+    |}];
   let%bind.Deferred earlier_response = unbound_response in
   print_s [%sexp (earlier_response : T.t Or_error.t)];
   [%expect {| (Error "Request aborted") |}];
@@ -386,7 +403,8 @@ let%expect_test "redispatch does not race with dispatch if dispatch is called \
     [%expect
       {|
       ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-      ((foo abc) (bar 32)) |}];
+      ((foo abc) (bar 32))
+      |}];
     (* We fire off a redispatch and then a dispatch request. We expect that after these
        requests are completed, the query should be that of the dispatch operation: "def". *)
     let redispatch_response = Polling_state_rpc.Client.redispatch client connection in
@@ -397,7 +415,8 @@ let%expect_test "redispatch does not race with dispatch if dispatch is called \
     [%expect
       {|
       ((prev (((foo abc) (bar 32)))) (query abc) (diff (Update ((Bar 33)))))
-      ((foo abc) (bar 33)) |}];
+      ((foo abc) (bar 33))
+      |}];
     let%bind dispatch_response = dispatch_response in
     print_s [%sexp (dispatch_response : T.t)];
     (* And doing one more redispatch shows us that the query was not modified by the
@@ -406,13 +425,15 @@ let%expect_test "redispatch does not race with dispatch if dispatch is called \
       {|
       ((prev (((foo abc) (bar 33)))) (query def)
        (diff (Update ((Foo def) (Bar 27)))))
-      ((foo def) (bar 27)) |}];
+      ((foo def) (bar 27))
+      |}];
     let%bind response = Polling_state_rpc.Client.redispatch client connection in
     print_s [%sexp (response : T.t)];
     [%expect
       {|
-       ((prev (((foo def) (bar 27)))) (query def) (diff (Update ((Bar 28)))))
-       ((foo def) (bar 28)) |}];
+      ((prev (((foo def) (bar 27)))) (query def) (diff (Update ((Bar 28)))))
+      ((foo def) (bar 28))
+      |}];
     let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
     let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
     Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -443,7 +464,8 @@ let%expect_test "[forget_on_server] does not clear the current query." =
     {|
     ((prev (((foo abc) (bar 32)))) (query abc)
      (diff (Fresh ((foo abc) (bar 33)))))
-    (Ok ((foo abc) (bar 33))) |}];
+    (Ok ((foo abc) (bar 33)))
+    |}];
   let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
   let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -466,7 +488,8 @@ let%expect_test "[forget_on_server] cancels an ongoing request." =
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   (* Fire off another rpc with the same query to get the blocking behavior. *)
   let unbound_response = Polling_state_rpc.Client.dispatch client connection "abc" in
   let%bind () = Polling_state_rpc.Client.forget_on_server client connection in
@@ -494,13 +517,15 @@ let%expect_test "[forget_on_server] does not affect any other clients." =
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    ((foo abc) (bar 32)) |}];
+    ((foo abc) (bar 32))
+    |}];
   let%bind response = Polling_state_rpc.Client.dispatch client2 connection "abc" in
   print_s [%sexp (response : T.t)];
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 33)))))
-    ((foo abc) (bar 33)) |}];
+    ((foo abc) (bar 33))
+    |}];
   let%bind () = Polling_state_rpc.Client.forget_on_server client1 connection in
   let%bind response = Polling_state_rpc.Client.dispatch client1 connection "abc" in
   print_s [%sexp (response : T.t)];
@@ -508,13 +533,15 @@ let%expect_test "[forget_on_server] does not affect any other clients." =
     {|
     ((prev (((foo abc) (bar 32)))) (query abc)
      (diff (Fresh ((foo abc) (bar 34)))))
-    ((foo abc) (bar 34)) |}];
+    ((foo abc) (bar 34))
+    |}];
   let%bind response = Polling_state_rpc.Client.dispatch client2 connection "abc" in
   print_s [%sexp (response : T.t)];
   [%expect
     {|
     ((prev (((foo abc) (bar 33)))) (query abc) (diff (Update ((Bar 35)))))
-    ((foo abc) (bar 35)) |}];
+    ((foo abc) (bar 35))
+    |}];
   let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
   let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -592,7 +619,8 @@ let%expect_test "demonstrate that changing the query will abort any un-dispatche
   [%expect
     {|
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    (Ok ((foo abc) (bar 32))) |}];
+    (Ok ((foo abc) (bar 32)))
+    |}];
   (* Fire off another rpc with the same query to get the blocking behavior. *)
   let response1 = Polling_state_rpc.Client.dispatch client connection "abc" in
   let%bind () = Mvar.take server_received_request in
@@ -616,7 +644,7 @@ let%expect_test "demonstrate that changing the query will abort any un-dispatche
     ((prev (((foo abc) (bar 33)))) (query def)
      (diff (Update ((Foo def) (Bar 27)))))
     (Ok ((foo def) (bar 27)))
-     |}];
+    |}];
   let%bind () = Async.Tcp.Server.close server in
   let%bind () = Async.Tcp.Server.close_finished server in
   Async.Scheduler.yield_until_no_jobs_remain ()
@@ -639,7 +667,8 @@ let%expect_test "demonstrate that an [rpc_error] triggers a bug message." =
         ((location "client-side rpc response un-bin-io'ing")
          (exn (common.ml.Read_error Int_code 29)))))
       (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
-      (rpc_name foo) (rpc_version 0))) |}];
+      (rpc_name foo) (rpc_version 0)))
+    |}];
   let%bind response1 = Polling_state_rpc.Client.dispatch client connection "abc" in
   print_s [%sexp (response1 : T_incompatible.t Or_error.t)];
   [%expect
@@ -654,7 +683,8 @@ let%expect_test "demonstrate that an [rpc_error] triggers a bug message." =
         ((location "client-side rpc response un-bin-io'ing")
          (exn (Failure "message length (9) did not match expected length (8)")))))
       (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
-      (rpc_name foo) (rpc_version 0))) |}];
+      (rpc_name foo) (rpc_version 0)))
+    |}];
   let%bind response2 = Polling_state_rpc.Client.dispatch client connection "def" in
   print_s [%sexp (response2 : T_incompatible.t Or_error.t)];
   [%expect
@@ -669,7 +699,8 @@ let%expect_test "demonstrate that an [rpc_error] triggers a bug message." =
         ((location "client-side rpc response un-bin-io'ing")
          (exn (Failure "message length (9) did not match expected length (8)")))))
       (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
-      (rpc_name foo) (rpc_version 0))) |}];
+      (rpc_name foo) (rpc_version 0)))
+    |}];
   let%bind () = Async.Tcp.Server.close server in
   let%bind () = Async.Tcp.Server.close_finished server in
   Async.Scheduler.yield_until_no_jobs_remain ()
@@ -739,14 +770,16 @@ let%expect_test "demonstrate client state with destructor" =
     {|
     1:1 created.
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
-    (Ok ((foo abc) (bar 32))) |}];
+    (Ok ((foo abc) (bar 32)))
+    |}];
   let%bind response = Polling_state_rpc.Client.dispatch client_1_2 connection1 "def" in
   print_s [%sexp (response : T.t Or_error.t)];
   [%expect
     {|
     1:2 created.
     ((prev ()) (query def) (diff (Fresh ((foo def) (bar 26)))))
-    (Ok ((foo def) (bar 26))) |}];
+    (Ok ((foo def) (bar 26)))
+    |}];
   let%bind connection2 = Pipe_transport_server.client_connection server in
   let%bind response = Polling_state_rpc.Client.dispatch client_2_1 connection2 "ghi" in
   print_s [%sexp (response : T.t Or_error.t)];
@@ -754,7 +787,8 @@ let%expect_test "demonstrate client state with destructor" =
     {|
     2:1 created.
     ((prev ()) (query ghi) (diff (Fresh ((foo ghi) (bar 24)))))
-    (Ok ((foo ghi) (bar 24))) |}];
+    (Ok ((foo ghi) (bar 24)))
+    |}];
   let%bind () =
     Polling_state_rpc.Client.forget_on_server client_1_1 connection1 >>| Or_error.ok_exn
   in
@@ -857,7 +891,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 0)))
-          (Ok 0) |}];
+          (Ok 0)
+          |}];
         let response = query () in
         let%bind () = actually_yield_until_no_jobs_remain () in
         [%expect {| |}];
@@ -867,7 +902,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev (0)) (query true) (diff (Update (1))))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         push 2;
         push 3;
         let%bind response = query () in
@@ -875,7 +911,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev (1)) (query true) (diff (Update (3))))
-          (Ok 3) |}];
+          (Ok 3)
+          |}];
         let response1 = query () in
         push 4;
         push 5;
@@ -886,7 +923,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev (3)) (query true) (diff (Update (5))))
-          (Ok 5) |}];
+          (Ok 5)
+          |}];
         let%bind () = actually_yield_until_no_jobs_remain () in
         push 6;
         let%bind response2 = response2 in
@@ -894,7 +932,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev (5)) (query true) (diff (Update (6))))
-          (Ok 6) |}];
+          (Ok 6)
+          |}];
         return ())
     ;;
 
@@ -935,7 +974,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 0)))
-          (Ok 0) |}];
+          (Ok 0)
+          |}];
         (* redispatch and wait for a response *)
         let response = query client true in
         push true 1;
@@ -944,7 +984,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev (0)) (query true) (diff (Update (1))))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         (* switch to a different query *)
         let response = query client false in
         push false 2;
@@ -964,7 +1005,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev (2)) (query true) (diff (Update (1))))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         let response = query client true in
         push true 3;
         let%bind response = response in
@@ -972,7 +1014,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev (1)) (query true) (diff (Update (3))))
-          (Ok 3) |}];
+          (Ok 3)
+          |}];
         (* ensure that the aborted request eventually resolves *)
         let%bind aborted = aborted in
         print_s [%sexp (aborted : int Or_error.t)];
@@ -984,7 +1027,8 @@ let%test_module "implement_via_bus" =
               ((location "server-side rpc computation")
                (exn (monitor.ml.Error (Failure "this request was cancelled"))))))
             (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
-            (rpc_name foo) (rpc_version 0))) |}];
+            (rpc_name foo) (rpc_version 0)))
+          |}];
         return ())
     ;;
 
@@ -1015,7 +1059,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 0)))
-          (Ok 0) |}];
+          (Ok 0)
+          |}];
         let response2 = query client1 in
         let%bind () = actually_yield_until_no_jobs_remain () in
         [%expect {| |}];
@@ -1024,14 +1069,16 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 0)))
-          (Ok 0) |}];
+          (Ok 0)
+          |}];
         push 1;
         let%bind response2 = response2 in
         print_s [%sexp (response2 : int Or_error.t)];
         [%expect
           {|
           ((prev (0)) (query true) (diff (Update (1))))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         return ())
     ;;
 
@@ -1071,7 +1118,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 0)))
-          (Ok 0) |}];
+          (Ok 0)
+          |}];
         let response2 = query client1 false in
         let%bind () = actually_yield_until_no_jobs_remain () in
         [%expect {| |}];
@@ -1080,20 +1128,23 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 0)))
-          (Ok 0) |}];
+          (Ok 0)
+          |}];
         Bus.write false_bus 1;
         let%bind response2 = response2 in
         print_s [%sexp (response2 : int Or_error.t)];
         [%expect
           {|
           ((prev (0)) (query false) (diff (Update (1))))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         let%bind response4 = query client2 false in
         print_s [%sexp (response4 : int Or_error.t)];
         [%expect
           {|
           ((prev (0)) (query false) (diff (Update (1))))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         return ())
     ;;
 
@@ -1128,7 +1179,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 1)))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         return ())
     ;;
 
@@ -1186,7 +1238,8 @@ let%test_module "implement_via_bus" =
                   ("ELIDED BACKTRACE"))))))
             (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
             (rpc_name    foo)
-            (rpc_version 0))) |}];
+            (rpc_version 0)))
+          |}];
         return ())
     ;;
 
@@ -1225,7 +1278,8 @@ let%test_module "implement_via_bus" =
           {|
           (!client_state 1)
           ((prev ()) (query true) (diff (Fresh 0)))
-          (Ok 0) |}];
+          (Ok 0)
+          |}];
         let client2 = make_client () in
         let%bind response = query client2 true in
         print_s [%sexp (response : int Or_error.t)];
@@ -1233,7 +1287,8 @@ let%test_module "implement_via_bus" =
           {|
           (!client_state 1)
           ((prev ()) (query true) (diff (Fresh 0)))
-          (Ok 0) |}];
+          (Ok 0)
+          |}];
         Bus.write bus 1;
         let%bind response = query client2 false in
         print_s [%sexp (response : int Or_error.t)];
@@ -1241,15 +1296,17 @@ let%test_module "implement_via_bus" =
           {|
           (!client_state 2)
           ((prev (0)) (query false) (diff (Update (1))))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         let%bind forget_response =
           Polling_state_rpc.Client.forget_on_server client1 connection
         in
         print_s [%message (forget_response : unit Or_error.t)];
         [%expect
           {|
-        (on_client_forgotten (!client_state 1))
-        (forget_response (Ok ())) |}];
+          (on_client_forgotten (!client_state 1))
+          (forget_response (Ok ()))
+          |}];
         return ())
     ;;
 
@@ -1291,7 +1348,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 1)))
-          (Ok 1) |}];
+          (Ok 1)
+          |}];
         (* We already have the bus, so we do not call the callback again, and therefore we
            do not block on the mvar getting filled again. *)
         push 2;
@@ -1300,7 +1358,8 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev (1)) (query true) (diff (Update (2))))
-          (Ok 2) |}];
+          (Ok 2)
+          |}];
         return ())
     ;;
 
@@ -1335,20 +1394,21 @@ let%test_module "implement_via_bus" =
         [%expect
           {|
           ((prev ()) (query true) (diff (Fresh 0)))
-          ((Ok 0)) |}];
+          ((Ok 0))
+          |}];
         push 1;
         let%bind () = actually_yield_until_no_jobs_remain () in
         let%bind response = response in
         print_s [%sexp (response : int Or_error.t)];
-        [%expect {|
-        (Ok 0) |}];
+        [%expect {| (Ok 0) |}];
         let%bind () = actually_yield_until_no_jobs_remain () in
         let%bind response = query () in
         print_s [%sexp (response : int Or_error.t)];
         [%expect
           {|
-        ((prev (0)) (query true) (diff (Update (1))))
-        (Ok 1) |}];
+          ((prev (0)) (query true) (diff (Update (1))))
+          (Ok 1)
+          |}];
         return ())
     ;;
   end)

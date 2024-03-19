@@ -58,8 +58,8 @@ val implement
         if clients have trouble receiving one response, they continue to have trouble
         receiving more responses (for example, bin_shape errors don't go away naturally). *)
   -> ?for_first_request:('connection_state -> 'query -> 'response Deferred.t)
-       (** When provided, [for_first_request] is called instead of the primary implementation function 
-      for the first_request of a particular query.  This is so that you can respond immediately to 
+       (** When provided, [for_first_request] is called instead of the primary implementation function
+      for the first_request of a particular query.  This is so that you can respond immediately to
       the first request, but block on subsequent requests until there's an update to send. *)
   -> ('query, 'response) t
   -> ('connection_state -> 'query -> 'response Deferred.t)
@@ -144,8 +144,8 @@ module Client : sig
     -> 'query
     -> 'response Deferred.Or_error.t
 
-  (** Same as [dispatch] but reusing the previous query.  This function throws if
-      [dispatch] or [set_query] was not called beforehand. *)
+  (** Same as [dispatch] but reusing the previous query.  This function returns an Error
+      if the query was not set with [dispatch] or [create ~initial_query] beforehand. *)
   val redispatch
     :  ('query, 'response) t
     -> Rpc.Connection.t
