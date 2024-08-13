@@ -17,12 +17,12 @@ let create () = { state = Init; unsubscribe = (fun () -> ()) }
 
 let push t value =
   t.state
-    <- (match t.state with
-        | Init -> Unseen_value value
-        | Waiting_for_next_value ivar ->
-          Ivar.fill_exn ivar value;
-          Init
-        | Unseen_value _ -> Unseen_value value)
+  <- (match t.state with
+      | Init -> Unseen_value value
+      | Waiting_for_next_value ivar ->
+        Ivar.fill_exn ivar value;
+        Init
+      | Unseen_value _ -> Unseen_value value)
 ;;
 
 let take t =

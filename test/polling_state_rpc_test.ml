@@ -58,13 +58,13 @@ let make_server ?server_received_request ?(block = fun () -> Deferred.unit) () =
         (Expect_test_helpers_core.print_s ~hide_positions:true)
       ~for_first_request:implementation
       (fun _ query ->
-      let%bind () =
-        match server_received_request with
-        | Some server_received_request -> Mvar.put server_received_request ()
-        | None -> return ()
-      in
-      let%bind () = block () in
-      implementation () query)
+         let%bind () =
+           match server_received_request with
+           | Some server_received_request -> Mvar.put server_received_request ()
+           | None -> return ()
+         in
+         let%bind () = block () in
+         implementation () query)
   in
   let open Deferred.Or_error.Let_syntax in
   let%map server =
@@ -73,7 +73,8 @@ let make_server ?server_received_request ?(block = fun () -> Deferred.unit) () =
          ~implementations:
            (Rpc.Implementations.create_exn
               ~implementations:[ implementation ]
-              ~on_unknown_rpc:`Close_connection)
+              ~on_unknown_rpc:`Close_connection
+              ~on_exception:Log_on_background_exn)
          ~initial_connection_state:(fun _addr conn -> (), conn)
          ~where_to_listen:where_to_listen_for_unit_test
          ()
@@ -754,7 +755,8 @@ let make_server_with_client_state
     ~implementations:
       (Rpc.Implementations.create_exn
          ~implementations:[ implementation ]
-         ~on_unknown_rpc:`Close_connection)
+         ~on_unknown_rpc:`Close_connection
+         ~on_exception:Log_on_background_exn)
     ~initial_connection_state:(fun conn -> (connection_counter (), make_counter ()), conn)
 ;;
 
@@ -826,7 +828,8 @@ let%test_module "implement_via_bus" =
             ~implementations:
               (Rpc.Implementations.create_exn
                  ~implementations:[ implementation ]
-                 ~on_unknown_rpc:`Close_connection)
+                 ~on_unknown_rpc:`Close_connection
+                 ~on_exception:Log_on_background_exn)
             ~initial_connection_state:(fun _addr conn -> (), conn)
             ~where_to_listen:where_to_listen_for_unit_test
             ()
@@ -1025,7 +1028,9 @@ let%test_module "implement_via_bus" =
            ((rpc_error
              (Uncaught_exn
               ((location "server-side rpc computation")
-               (exn (monitor.ml.Error (Failure "this request was cancelled"))))))
+               (exn
+                (monitor.ml.Error (Failure "this request was cancelled")
+                 ("Caught by monitor at file \"lib/polling_state_rpc/test/polling_state_rpc_test.ml\", line LINE, characters C1-C2"))))))
             (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
             (rpc_name foo) (rpc_version 0)))
           |}];

@@ -36,7 +36,8 @@ val create
     it's more likely that you'll want to block until your data store changes and updates
     are made available. *)
 val implement
-  :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
+  :  ?here:Stdlib.Lexing.position
+  -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
        (** [on_client_and_server_out_of_sync] gets called when the client asks for either diffs
       from a point different than the server expected or a fresh response when the server
       was expecting it to ask for diffs.
@@ -76,7 +77,8 @@ val implement
     [on_client_forgotten] is called when the client calls [Client.forget_on_server], or
     when the underlying connection is closed. *)
 val implement_with_client_state
-  :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
+  :  ?here:Stdlib.Lexing.position
+  -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
   -> create_client_state:('connection_state -> 'client_state)
   -> ?on_client_forgotten:('client_state -> unit)
   -> ?for_first_request:
@@ -85,11 +87,10 @@ val implement_with_client_state
   -> ('connection_state -> 'client_state -> 'query -> 'response Deferred.t)
   -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
 
-(** Like [implement], except the callback is invoked only once per query, and
-    must return a bus instead of a single result. Each time a client polls, it
-    will receive the newest response that it has not yet seen. If it has seen
-    the newest response, then the RPC implementation will block until there is
-    a newer response.
+(** Like [implement], except the callback is invoked only when the query changes, and it
+    must return a bus instead of a single result. Each time a client polls, it will
+    receive the newest response that it has not yet seen. If it has seen the newest
+    response, then the RPC implementation will block until there is a newer response.
 
     This function immediately subscribes to the returned bus and cancels any
     previous subscriptions each time it invokes the callback. It is recommended
@@ -97,7 +98,8 @@ val implement_with_client_state
     doesn't miss the first response for each query (or even raise, if
     [on_subscription_after_first_write] is set to [Raise]). *)
 val implement_via_bus
-  :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
+  :  ?here:Stdlib.Lexing.position
+  -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
   -> create_client_state:('connection_state -> 'client_state)
   -> ?on_client_forgotten:('client_state -> unit)
   -> ('query, 'response) t
@@ -115,7 +117,8 @@ val implement_via_bus
     as a subscriber iff the client is still polling for this query.
 *)
 val implement_via_bus'
-  :  on_client_and_server_out_of_sync:(Sexp.t -> unit)
+  :  ?here:Stdlib.Lexing.position
+  -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
   -> create_client_state:('connection_state -> 'client_state)
   -> ?on_client_forgotten:('client_state -> unit)
   -> ('query, 'response) t
@@ -174,6 +177,16 @@ module Client : sig
   (** Receives a [bus] which forwards all the responses that come from this
       client alongside the query which requested them. *)
   val bus : ('query, 'response) t -> ('query -> 'response -> unit) Bus.Read_only.t
+
+  module For_introspection : sig
+    (** Like [dispatch], but also returns the underlying diff sent over the wire. *)
+    val dispatch_with_underlying_diff
+      :  ?sexp_of_response:('response -> Sexp.t)
+      -> ('query, 'response) t
+      -> Rpc.Connection.t
+      -> 'query
+      -> ('response * Sexp.t lazy_t) Deferred.Or_error.t
+  end
 end
 
 module Private_for_testing : sig

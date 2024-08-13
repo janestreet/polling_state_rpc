@@ -16,6 +16,7 @@ depends: [
   "babel"
   "core"
   "core_kernel"
+  "ppx_diff"
   "ppx_jane"
   "dune"             {>= "3.11.0"}
 ]

@@ -239,6 +239,7 @@ let create
 
 let implement_with_client_state
   (type response)
+  ?(here = Stdlib.Lexing.dummy_pos)
   ~on_client_and_server_out_of_sync
   ~create_client_state
   ?(on_client_forgotten = ignore)
@@ -267,7 +268,7 @@ let implement_with_client_state
       Response.Update diff, new_
     in
     let cache = Cache.create ~on_client_forgotten in
-    Rpc.Rpc.implement underlying_rpc (fun (connection_state, connection) request ->
+    Rpc.Rpc.implement ~here underlying_rpc (fun (connection_state, connection) request ->
       match Request.unstable_of_stable request with
       | Cancel_ongoing client_id ->
         let per_client =
@@ -345,13 +346,20 @@ let implement_with_client_state
   do_implement ~response_module ~underlying_rpc ~query_equal
 ;;
 
-let implement ~on_client_and_server_out_of_sync ?for_first_request t f =
+let implement
+  ?(here = Stdlib.Lexing.dummy_pos)
+  ~on_client_and_server_out_of_sync
+  ?for_first_request
+  t
+  f
+  =
   let for_first_request =
     Option.map for_first_request ~f:(fun f connection_state _client_state query ->
       f connection_state query)
   in
   let f connection_state _client_state query = f connection_state query in
   implement_with_client_state
+    ~here
     ~on_client_and_server_out_of_sync
     ~create_client_state:(fun _ -> ())
     ?for_first_request
@@ -360,6 +368,7 @@ let implement ~on_client_and_server_out_of_sync ?for_first_request t f =
 ;;
 
 let implement_via_bus
+  ?(here = Stdlib.Lexing.dummy_pos)
   ~on_client_and_server_out_of_sync
   ~create_client_state
   ?on_client_forgotten
@@ -367,6 +376,7 @@ let implement_via_bus
   f
   =
   implement_with_client_state
+    ~here
     ~on_client_and_server_out_of_sync
     ~create_client_state:(fun connection_state ->
       Bus_state.create (), create_client_state connection_state)
@@ -395,6 +405,7 @@ let implement_via_bus
 ;;
 
 let implement_via_bus'
+  ?(here = Stdlib.Lexing.dummy_pos)
   ~on_client_and_server_out_of_sync
   ~create_client_state
   ?on_client_forgotten
@@ -402,12 +413,13 @@ let implement_via_bus'
   f
   =
   implement_via_bus
+    ~here
     ~on_client_and_server_out_of_sync
     ~create_client_state
     ?on_client_forgotten
     rpc
     (fun connection_state client_state query ->
-    f connection_state client_state query |> Deferred.return)
+       f connection_state client_state query |> Deferred.return)
 ;;
 
 module Client = struct
@@ -468,7 +480,13 @@ module Client = struct
          | Error e -> Error e))
   ;;
 
-  let dispatch' t connection query =
+  let dispatch'
+    (type query response diff)
+    ?(sexp_of_response : (response -> Sexp.t) option)
+    (t : (query, response, diff) unpacked)
+    connection
+    query
+    =
     t.last_query <- Some query;
     let%bind response =
       let last_seqnum = t.last_seqnum in
@@ -481,7 +499,21 @@ module Client = struct
       t.last_seqnum <- Some new_seqnum;
       t.out <- Some new_out;
       Bus.write2 t.bus query new_out;
-      return (Ok new_out)
+      let underlying_diff =
+        lazy
+          (let module User_response :
+             Response with type t = response and type Update.t = diff =
+             (val t.response_module)
+           in
+          let module User_response = struct
+            include User_response
+
+            let sexp_of_t = Option.value ~default:sexp_of_opaque sexp_of_response
+          end
+          in
+          [%sexp_of: (User_response.t, User_response.Update.t) Response.t] response)
+      in
+      return (Ok (new_out, underlying_diff))
     | Ok Cancellation_successful ->
       [%message "BUG" [%here] "cancellation caused by regular request"]
       |> Or_error.error_s
@@ -497,20 +529,33 @@ module Client = struct
   ;;
 
   (* Use a sequencer to ensure that there aren't any sequential outgoing requests *)
-  let dispatch (T t) connection query =
+  let dispatch_with_underlying_diff ?sexp_of_response (T t) connection query =
     let query_dispatch_id = Query_dispatch_id.create () in
     t.last_query_dispatch_id <- query_dispatch_id;
     let%bind.Deferred.Or_error () = cancel_current_if_query_changed t query connection in
     (if not (Query_dispatch_id.equal t.last_query_dispatch_id query_dispatch_id)
      then return `Aborted
-     else Throttle.enqueue' t.sequencer (fun () -> dispatch' t connection query))
+     else
+       Throttle.enqueue' t.sequencer (fun () ->
+         dispatch' ?sexp_of_response t connection query))
     >>| collapse_sequencer_error
+  ;;
+
+  let dispatch rpc connection query =
+    let%map.Deferred.Or_error response, (_ : Sexp.t lazy_t) =
+      dispatch_with_underlying_diff rpc connection query
+    in
+    response
   ;;
 
   let redispatch (T t) connection =
     Throttle.enqueue' t.sequencer (fun () ->
       match t.last_query with
-      | Some q -> dispatch' t connection q
+      | Some q ->
+        let%map.Deferred.Or_error response, (_ : Sexp.t lazy_t) =
+          dispatch' t connection q
+        in
+        response
       | None ->
         "[redispatch] called before a query was set or a regular dispatch had completed"
         |> Error.of_string
@@ -593,6 +638,10 @@ module Client = struct
       ; client_id = Client_id.create ()
       }
   ;;
+
+  module For_introspection = struct
+    let dispatch_with_underlying_diff = dispatch_with_underlying_diff
+  end
 end
 
 module Private_for_testing = struct
