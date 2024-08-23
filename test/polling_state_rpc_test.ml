@@ -411,14 +411,14 @@ let%expect_test "redispatch does not race with dispatch if dispatch is called \
     let redispatch_response = Polling_state_rpc.Client.redispatch client connection in
     let dispatch_response = Polling_state_rpc.Client.dispatch client connection "def" in
     (* Both of the responses look as expected. *)
-    let%bind redispatch_response = redispatch_response in
+    let%bind redispatch_response in
     print_s [%sexp (redispatch_response : T.t)];
     [%expect
       {|
       ((prev (((foo abc) (bar 32)))) (query abc) (diff (Update ((Bar 33)))))
       ((foo abc) (bar 33))
       |}];
-    let%bind dispatch_response = dispatch_response in
+    let%bind dispatch_response in
     print_s [%sexp (dispatch_response : T.t)];
     (* And doing one more redispatch shows us that the query was not modified by the
        redispatch query. *)
@@ -630,15 +630,15 @@ let%expect_test "demonstrate that changing the query will abort any un-dispatche
   let response3 = Polling_state_rpc.Client.dispatch client connection "def" in
   Bvar.broadcast bvar ();
   [%expect {| |}];
-  let%bind response1 = response1 in
+  let%bind response1 in
   [%expect {| ((prev (((foo abc) (bar 32)))) (query abc) (diff (Update ((Bar 33))))) |}];
   print_s [%sexp (response1 : T.t Or_error.t)];
   [%expect {| (Ok ((foo abc) (bar 33))) |}];
   let%bind () = Block.unblock writer_block in
-  let%bind response2 = response2 in
+  let%bind response2 in
   print_s [%sexp (response2 : T.t Or_error.t)];
   [%expect {| (Error "Request aborted") |}];
-  let%bind response3 = response3 in
+  let%bind response3 in
   print_s [%sexp (response3 : T.t Or_error.t)];
   [%expect
     {|
@@ -889,7 +889,7 @@ let%test_module "implement_via_bus" =
         let%bind () = actually_yield_until_no_jobs_remain () in
         push 0;
         [%expect {| |}];
-        let%bind response = response in
+        let%bind response in
         print_s [%sexp (response : int Or_error.t)];
         [%expect
           {|
@@ -900,7 +900,7 @@ let%test_module "implement_via_bus" =
         let%bind () = actually_yield_until_no_jobs_remain () in
         [%expect {| |}];
         push 1;
-        let%bind response = response in
+        let%bind response in
         print_s [%sexp (response : int Or_error.t)];
         [%expect
           {|
@@ -921,7 +921,7 @@ let%test_module "implement_via_bus" =
         push 5;
         let%bind () = actually_yield_until_no_jobs_remain () in
         let response2 = query () in
-        let%bind response1 = response1 in
+        let%bind response1 in
         print_s [%sexp (response1 : int Or_error.t)];
         [%expect
           {|
@@ -930,7 +930,7 @@ let%test_module "implement_via_bus" =
           |}];
         let%bind () = actually_yield_until_no_jobs_remain () in
         push 6;
-        let%bind response2 = response2 in
+        let%bind response2 in
         print_s [%sexp (response2 : int Or_error.t)];
         [%expect
           {|
@@ -982,7 +982,7 @@ let%test_module "implement_via_bus" =
         (* redispatch and wait for a response *)
         let response = query client true in
         push true 1;
-        let%bind response = response in
+        let%bind response in
         print_s [%sexp (response : int Or_error.t)];
         [%expect
           {|
@@ -994,7 +994,7 @@ let%test_module "implement_via_bus" =
         push false 2;
         let%bind () = actually_yield_until_no_jobs_remain () in
         [%expect {| ((prev (1)) (query false) (diff (Update (2)))) |}];
-        let%bind response = response in
+        let%bind response in
         print_s [%sexp (response : int Or_error.t)];
         [%expect {| (Ok 2) |}];
         (* redispatch a query, but abort before it resolves *)
@@ -1012,7 +1012,7 @@ let%test_module "implement_via_bus" =
           |}];
         let response = query client true in
         push true 3;
-        let%bind response = response in
+        let%bind response in
         print_s [%sexp (response : int Or_error.t)];
         [%expect
           {|
@@ -1020,7 +1020,7 @@ let%test_module "implement_via_bus" =
           (Ok 3)
           |}];
         (* ensure that the aborted request eventually resolves *)
-        let%bind aborted = aborted in
+        let%bind aborted in
         print_s [%sexp (aborted : int Or_error.t)];
         [%expect
           {|
@@ -1077,7 +1077,7 @@ let%test_module "implement_via_bus" =
           (Ok 0)
           |}];
         push 1;
-        let%bind response2 = response2 in
+        let%bind response2 in
         print_s [%sexp (response2 : int Or_error.t)];
         [%expect
           {|
@@ -1136,7 +1136,7 @@ let%test_module "implement_via_bus" =
           (Ok 0)
           |}];
         Bus.write false_bus 1;
-        let%bind response2 = response2 in
+        let%bind response2 in
         print_s [%sexp (response2 : int Or_error.t)];
         [%expect
           {|
@@ -1179,7 +1179,7 @@ let%test_module "implement_via_bus" =
         let%bind () = actually_yield_until_no_jobs_remain () in
         [%expect {| |}];
         Bus.write bus 1;
-        let%bind response = response in
+        let%bind response in
         print_s [%sexp (response : int Or_error.t)];
         [%expect
           {|
@@ -1348,7 +1348,7 @@ let%test_module "implement_via_bus" =
         push 1;
         Mvar.set mvar ();
         let%bind () = actually_yield_until_no_jobs_remain () in
-        let%bind response = response in
+        let%bind response in
         print_s [%sexp (response : int Or_error.t)];
         [%expect
           {|
@@ -1403,7 +1403,7 @@ let%test_module "implement_via_bus" =
           |}];
         push 1;
         let%bind () = actually_yield_until_no_jobs_remain () in
-        let%bind response = response in
+        let%bind response in
         print_s [%sexp (response : int Or_error.t)];
         [%expect {| (Ok 0) |}];
         let%bind () = actually_yield_until_no_jobs_remain () in

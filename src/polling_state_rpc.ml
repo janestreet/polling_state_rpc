@@ -239,7 +239,7 @@ let create
 
 let implement_with_client_state
   (type response)
-  ?(here = Stdlib.Lexing.dummy_pos)
+  ~(here : [%call_pos])
   ~on_client_and_server_out_of_sync
   ~create_client_state
   ?(on_client_forgotten = ignore)
@@ -347,7 +347,7 @@ let implement_with_client_state
 ;;
 
 let implement
-  ?(here = Stdlib.Lexing.dummy_pos)
+  ~(here : [%call_pos])
   ~on_client_and_server_out_of_sync
   ?for_first_request
   t
@@ -368,7 +368,7 @@ let implement
 ;;
 
 let implement_via_bus
-  ?(here = Stdlib.Lexing.dummy_pos)
+  ~(here : [%call_pos])
   ~on_client_and_server_out_of_sync
   ~create_client_state
   ?on_client_forgotten
@@ -405,7 +405,7 @@ let implement_via_bus
 ;;
 
 let implement_via_bus'
-  ?(here = Stdlib.Lexing.dummy_pos)
+  ~(here : [%call_pos])
   ~on_client_and_server_out_of_sync
   ~create_client_state
   ?on_client_forgotten
@@ -672,10 +672,7 @@ module Private_for_testing = struct
         fold:(response option -> query -> (response, diff) Response.t -> response)
         -> response_module:
              (module Response with type t = response and type Update.t = diff)
-        -> response option
-        -> query
-        -> (response, diff) Response.t
-        -> response
+        -> (response option -> query -> (response, diff) Response.t -> response)
       =
       fun ~fold ~response_module ->
       let module M = (val response_module) in

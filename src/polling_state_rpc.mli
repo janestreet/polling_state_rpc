@@ -36,7 +36,7 @@ val create
     it's more likely that you'll want to block until your data store changes and updates
     are made available. *)
 val implement
-  :  ?here:Stdlib.Lexing.position
+  :  here:[%call_pos]
   -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
        (** [on_client_and_server_out_of_sync] gets called when the client asks for either diffs
       from a point different than the server expected or a fresh response when the server
@@ -77,7 +77,7 @@ val implement
     [on_client_forgotten] is called when the client calls [Client.forget_on_server], or
     when the underlying connection is closed. *)
 val implement_with_client_state
-  :  ?here:Stdlib.Lexing.position
+  :  here:[%call_pos]
   -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
   -> create_client_state:('connection_state -> 'client_state)
   -> ?on_client_forgotten:('client_state -> unit)
@@ -98,7 +98,7 @@ val implement_with_client_state
     doesn't miss the first response for each query (or even raise, if
     [on_subscription_after_first_write] is set to [Raise]). *)
 val implement_via_bus
-  :  ?here:Stdlib.Lexing.position
+  :  here:[%call_pos]
   -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
   -> create_client_state:('connection_state -> 'client_state)
   -> ?on_client_forgotten:('client_state -> unit)
@@ -117,7 +117,7 @@ val implement_via_bus
     as a subscriber iff the client is still polling for this query.
 *)
 val implement_via_bus'
-  :  ?here:Stdlib.Lexing.position
+  :  here:[%call_pos]
   -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
   -> create_client_state:('connection_state -> 'client_state)
   -> ?on_client_forgotten:('client_state -> unit)
