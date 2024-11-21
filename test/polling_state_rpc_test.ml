@@ -668,7 +668,9 @@ let%expect_test "demonstrate that an [rpc_error] triggers a bug message." =
       (rpc_error (
         Bin_io_exn (
           (location "client-side rpc response un-bin-io'ing")
-          (exn (common.ml.Read_error Int_code 29)))))
+          (exn (
+            Failure
+            "lib/async_rpc/kernel/src/rpc.ml:LINE:COL message length (9) did not match expected length (8)")))))
       (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
       (rpc_name    foo)
       (rpc_version 0)))
