@@ -46,6 +46,6 @@ let unsubscribe t =
 
 let subscribe t bus =
   unsubscribe t;
-  let subscriber = Bus.subscribe_exn bus [%here] ~f:(fun response -> push t response) in
+  let subscriber = Bus.subscribe_exn bus ~f:(fun response -> push t response) in
   t.unsubscribe <- (fun () -> Bus.unsubscribe bus subscriber)
 ;;

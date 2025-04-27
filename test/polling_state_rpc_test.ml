@@ -93,6 +93,17 @@ let make_client ?initial_query () =
   Polling_state_rpc.Private_for_testing.create_client ?initial_query rpc ~introspect
 ;;
 
+let make_client_printing_terse_diffs ?initial_query () =
+  let introspect _prev _query diff =
+    let diff_bin_size =
+      [%bin_size: T.t Polling_state_rpc.Private_for_testing.Response.t] diff
+    in
+    let is_fresh = Polling_state_rpc.Private_for_testing.Response.is_fresh diff in
+    print_s [%message (is_fresh : bool) (diff_bin_size : int)]
+  in
+  Polling_state_rpc.Private_for_testing.create_client ?initial_query rpc ~introspect
+;;
+
 let make_incompatible_client ?initial_query () =
   let introspect prev query diff =
     print_s
@@ -138,6 +149,26 @@ let%expect_test "basic operations" =
     ((prev (((foo def) (bar 26)))) (query def) (diff (Update ((Bar 27)))))
     ((foo def) (bar 27))
     |}];
+  let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
+  let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
+  Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
+;;
+
+let%expect_test "terse diffs" =
+  let open Deferred.Or_error.Let_syntax in
+  Deferred.Or_error.ok_exn
+  @@
+  let%bind server, where_to_connect = make_server () in
+  let%bind connection =
+    Deferred.Or_error.of_exn_result (Rpc.Connection.client where_to_connect)
+  in
+  let client = make_client_printing_terse_diffs () in
+  let%bind _ = Polling_state_rpc.Client.dispatch client connection "abc" in
+  [%expect {| ((is_fresh true) (diff_bin_size 9)) |}];
+  let%bind _ = Polling_state_rpc.Client.dispatch client connection "def" in
+  [%expect {| ((is_fresh false) (diff_bin_size 12)) |}];
+  let%bind _ = Polling_state_rpc.Client.redispatch client connection in
+  [%expect {| ((is_fresh false) (diff_bin_size 7)) |}];
   let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
   let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
   Deferred.ok (Async.Scheduler.yield_until_no_jobs_remain ())
@@ -411,29 +442,25 @@ let%expect_test "redispatch does not race with dispatch if dispatch is called \
     let redispatch_response = Polling_state_rpc.Client.redispatch client connection in
     let dispatch_response = Polling_state_rpc.Client.dispatch client connection "def" in
     (* Both of the responses look as expected. *)
-    let%bind redispatch_response in
-    print_s [%sexp (redispatch_response : T.t)];
+    let%bind.Deferred redispatch_response in
+    print_s [%sexp (redispatch_response : T.t Or_error.t)];
+    [%expect {| (Error "Request aborted") |}];
+    let%bind.Deferred dispatch_response in
+    print_s [%sexp (dispatch_response : T.t Or_error.t)];
     [%expect
       {|
-      ((prev (((foo abc) (bar 32)))) (query abc) (diff (Update ((Bar 33)))))
-      ((foo abc) (bar 33))
+      ((prev (((foo abc) (bar 32)))) (query def)
+       (diff (Update ((Foo def) (Bar 27)))))
+      (Ok ((foo def) (bar 27)))
       |}];
-    let%bind dispatch_response in
-    print_s [%sexp (dispatch_response : T.t)];
     (* And doing one more redispatch shows us that the query was not modified by the
        redispatch query. *)
-    [%expect
-      {|
-      ((prev (((foo abc) (bar 33)))) (query def)
-       (diff (Update ((Foo def) (Bar 27)))))
-      ((foo def) (bar 27))
-      |}];
-    let%bind response = Polling_state_rpc.Client.redispatch client connection in
-    print_s [%sexp (response : T.t)];
+    let%bind.Deferred response = Polling_state_rpc.Client.redispatch client connection in
+    print_s [%sexp (response : T.t Or_error.t)];
     [%expect
       {|
       ((prev (((foo def) (bar 27)))) (query def) (diff (Update ((Bar 28)))))
-      ((foo def) (bar 28))
+      (Ok ((foo def) (bar 28)))
       |}];
     let%bind () = Deferred.ok (Async.Tcp.Server.close server) in
     let%bind () = Deferred.ok (Async.Tcp.Server.close_finished server) in
@@ -882,7 +909,6 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "single client, single query" =
     let bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
@@ -957,14 +983,12 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "single client, multiple queries" =
     let true_bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
     in
     let false_bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
@@ -1036,25 +1060,13 @@ module%test [@name "implement_via_bus"] _ = struct
       (* ensure that the aborted request eventually resolves *)
       let%bind aborted in
       print_s [%sexp (aborted : int Or_error.t)];
-      [%expect
-        {|
-        (Error
-         ((rpc_error
-           (Uncaught_exn
-            ((location "server-side rpc computation")
-             (exn
-              (monitor.ml.Error (Failure "this request was cancelled")
-               ("Caught by monitor at file \"lib/polling_state_rpc/test/polling_state_rpc_test.ml\", line LINE, characters C1-C2"))))))
-          (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
-          (rpc_name foo) (rpc_version 0)))
-        |}];
+      [%expect {| (Error "Request aborted") |}];
       return ())
   ;;
 
   let%expect_test "multiple clients, single query" =
     let bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
@@ -1104,14 +1116,12 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "multiple clients, multiple queries" =
     let true_bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
     in
     let false_bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
@@ -1170,7 +1180,6 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "bus gets created with [Allow]" =
     let bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
@@ -1211,7 +1220,6 @@ module%test [@name "implement_via_bus"] _ = struct
          to tell the user of their mistake. *)
     let bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Raise
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
@@ -1265,7 +1273,6 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "client_state" =
     let bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
@@ -1332,7 +1339,6 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "async callback" =
     let bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
@@ -1387,7 +1393,6 @@ module%test [@name "implement_via_bus"] _ = struct
          important to note. *)
     let bus =
       Bus.create_exn
-        [%here]
         Arity1
         ~on_subscription_after_first_write:Allow_and_send_last_value
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])

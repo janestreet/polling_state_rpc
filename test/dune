@@ -3,4 +3,4 @@
  (preprocess
   (pps ppx_jane ppx_legacy_diff))
  (libraries core async legacy_diffable polling_state_rpc async_rpc_kernel
-   core_kernel.bus expect_test_helpers_core core_kernel.vec))
+   core_kernel.bus expect_test_helpers_core vec))

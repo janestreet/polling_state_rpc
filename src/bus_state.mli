@@ -7,8 +7,7 @@ open Async_kernel
     pending [take]s.
 
     This is similar to a [Bvar.t], except we store the latest broadcasted value, allowing
-    [take] to return an immediately determined value when the bus is ahead of the client.
-*)
+    [take] to return an immediately determined value when the bus is ahead of the client. *)
 
 type 'a t
 
