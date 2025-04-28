@@ -187,8 +187,8 @@ module Response = struct
 end
 
 module type Response = sig
-  (** This is a subset of the diffable signature (without [to_diffs] and [of_diffs])
-      and with the diffable type also supporting bin_io *)
+  (** This is a subset of the diffable signature (without [to_diffs] and [of_diffs]) and
+      with the diffable type also supporting bin_io *)
 
   type t [@@deriving bin_io]
 
@@ -339,8 +339,7 @@ let implement_with_client_state
            let new_seqnum = Cache.set per_client (query, userdata) in
            Cache.trigger_cancel per_client;
            Response.Response { new_seqnum; response }
-         | `Cancelled ->
-           Exn.raise_without_backtrace (Failure "this request was cancelled")))
+         | `Cancelled -> Response.Cancellation_successful))
   in
   let (T { query_equal; response_module; underlying_rpc }) = t in
   do_implement ~response_module ~underlying_rpc ~query_equal
@@ -452,7 +451,7 @@ module Client = struct
   let cancel_current_if_query_changed t q connection =
     (* use this cleaning_sequencer as a lock to prevent two subsequent queries
        from obliterating the same sequencer. *)
-    Throttle.enqueue t.cleaning_sequencer (fun () ->
+    Throttle.enqueue' t.cleaning_sequencer (fun () ->
       match t.last_query with
       (* If there was no previous query, we can keep the existing sequencer
          because its totally empty. *)
@@ -479,6 +478,16 @@ module Client = struct
          | Ok Cancellation_successful -> Ok ()
          | Error e -> Error e))
   ;;
+
+  module Aborted_error : sig
+    val the_one_and_only : Error.t
+    val test : Error.t -> bool
+  end = struct
+    exception Aborted [@@deriving sexp_of]
+
+    let the_one_and_only = Error.of_exn Aborted
+    let test = phys_equal the_one_and_only
+  end
 
   let dispatch'
     (type query response diff)
@@ -514,10 +523,7 @@ module Client = struct
           [%sexp_of: (User_response.t, User_response.Update.t) Response.t] response)
       in
       return (Ok (new_out, underlying_diff))
-    | Ok Cancellation_successful ->
-      [%message "BUG" [%here] "cancellation caused by regular request"]
-      |> Or_error.error_s
-      |> return
+    | Ok Cancellation_successful -> return (Error Aborted_error.the_one_and_only)
     | Error e -> return (Error e)
   ;;
 
@@ -528,40 +534,51 @@ module Client = struct
     | `Raised exn -> Error (Error.of_exn exn)
   ;;
 
+  let fix_sequencer_error = function
+    | `Ok (Error e) when Aborted_error.test e -> `Aborted
+    | other -> other
+  ;;
+
   (* Use a sequencer to ensure that there aren't any sequential outgoing requests *)
   let dispatch_with_underlying_diff ?sexp_of_response (T t) connection query =
     let query_dispatch_id = Query_dispatch_id.create () in
     t.last_query_dispatch_id <- query_dispatch_id;
-    let%bind.Deferred.Or_error () = cancel_current_if_query_changed t query connection in
-    (if not (Query_dispatch_id.equal t.last_query_dispatch_id query_dispatch_id)
-     then return `Aborted
-     else
-       Throttle.enqueue' t.sequencer (fun () ->
-         dispatch' ?sexp_of_response t connection query))
-    >>| collapse_sequencer_error
+    match%bind cancel_current_if_query_changed t query connection with
+    | (`Aborted | `Raised _ | `Ok (Error _)) as result -> return result
+    | `Ok (Ok ()) ->
+      if not (Query_dispatch_id.equal t.last_query_dispatch_id query_dispatch_id)
+      then return `Aborted
+      else (
+        let%map result =
+          Throttle.enqueue' t.sequencer (fun () ->
+            dispatch' ?sexp_of_response t connection query)
+        in
+        fix_sequencer_error result)
   ;;
 
   let dispatch rpc connection query =
     let%map.Deferred.Or_error response, (_ : Sexp.t lazy_t) =
-      dispatch_with_underlying_diff rpc connection query
+      dispatch_with_underlying_diff rpc connection query >>| collapse_sequencer_error
     in
     response
   ;;
 
   let redispatch (T t) connection =
-    Throttle.enqueue' t.sequencer (fun () ->
-      match t.last_query with
-      | Some q ->
-        let%map.Deferred.Or_error response, (_ : Sexp.t lazy_t) =
-          dispatch' t connection q
-        in
-        response
-      | None ->
-        "[redispatch] called before a query was set or a regular dispatch had completed"
-        |> Error.of_string
-        |> Error
-        |> Deferred.return)
-    >>| collapse_sequencer_error
+    let%map result =
+      Throttle.enqueue' t.sequencer (fun () ->
+        match t.last_query with
+        | Some q ->
+          let%map.Deferred.Or_error response, (_ : Sexp.t lazy_t) =
+            dispatch' t connection q
+          in
+          response
+        | None ->
+          "[redispatch] called before a query was set or a regular dispatch had completed"
+          |> Error.of_string
+          |> Error
+          |> Deferred.return)
+    in
+    collapse_sequencer_error (fix_sequencer_error result)
   ;;
 
   let forget_on_server (T t) connection =
@@ -614,7 +631,6 @@ module Client = struct
     in
     let bus =
       Bus.create_exn
-        [%here]
         Bus.Callback_arity.Arity2
         ~on_callback_raise:(fun error ->
           let tag = "exception thrown from inside of polling-state-rpc bus handler" in
@@ -651,12 +667,25 @@ module Private_for_testing = struct
       | Update :
           { t : 'update
           ; sexp_of : 'update -> Sexp.t
+          ; bin_size_t : 'update -> int
           }
           -> 'response t
 
     let sexp_of_t sexp_of_a = function
       | Fresh a -> [%sexp Fresh (sexp_of_a a : Sexp.t)]
-      | Update { t; sexp_of } -> [%sexp Update (sexp_of t : Sexp.t)]
+      | Update { t; sexp_of; _ } -> [%sexp Update (sexp_of t : Sexp.t)]
+    ;;
+
+    let base_bin_size_t = [%bin_size: [ `Fresh | `Update ]]
+
+    let bin_size_t bin_size_a = function
+      | Fresh a -> base_bin_size_t `Fresh + bin_size_a a
+      | Update { t; bin_size_t; _ } -> base_bin_size_t `Update + bin_size_t t
+    ;;
+
+    let is_fresh = function
+      | Fresh _ -> true
+      | Update _ -> false
     ;;
   end
 
@@ -683,7 +712,12 @@ module Private_for_testing = struct
         let resp' =
           match resp with
           | Response.Fresh r -> Response'.Fresh r
-          | Update diffs -> Update { t = diffs; sexp_of = [%sexp_of: M.Update.t] }
+          | Update diffs ->
+            Update
+              { t = diffs
+              ; sexp_of = [%sexp_of: M.Update.t]
+              ; bin_size_t = [%bin_size: M.Update.t]
+              }
         in
         introspect prev query resp';
         fold prev query resp

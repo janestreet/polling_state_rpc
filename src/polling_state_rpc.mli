@@ -3,8 +3,8 @@ open! Async_kernel
 open! Async_rpc_kernel
 
 module type Response = sig
-  (** This is a subset of the diffable signature (without [to_diffs] and [of_diffs])
-      and with the diffable type also supporting bin_io *)
+  (** This is a subset of the diffable signature (without [to_diffs] and [of_diffs]) and
+      with the diffable type also supporting bin_io *)
 
   type t [@@deriving bin_io]
 
@@ -16,7 +16,7 @@ module type Response = sig
   val update : t -> Update.t -> t
 end
 
-(** The type representing the RPC itself.  Similar to Rpc.Rpc.t and its friends. *)
+(** The type representing the RPC itself. Similar to Rpc.Rpc.t and its friends. *)
 type ('query, 'response) t
 
 val name : ('query, 'response) t -> string
@@ -38,30 +38,31 @@ val create
 val implement
   :  ?here:Stdlib.Lexing.position
   -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
-       (** [on_client_and_server_out_of_sync] gets called when the client asks for either diffs
-      from a point different than the server expected or a fresh response when the server
-      was expecting it to ask for diffs.
+       (** [on_client_and_server_out_of_sync] gets called when the client asks for either
+           diffs from a point different than the server expected or a fresh response when
+           the server was expecting it to ask for diffs.
 
-      This can happen when the response type's bin_shape changes, which means that the
-      client will receive responses but won't be able to deserialize them. It can also
-      happen when the client's heartbeat times out.
+           This can happen when the response type's bin_shape changes, which means that
+           the client will receive responses but won't be able to deserialize them. It can
+           also happen when the client's heartbeat times out.
 
+           In both of these cases the server behaves reasonably (it falls back to sending
+           a fresh response), but passes a message to [on_client_and_server_out_of_sync]
+           because the situation is undesirable, so server owners should be made aware so
+           that it can be addressed.
 
-      In both of these cases the server behaves reasonably (it falls back to sending a
-      fresh response), but passes a message to [on_client_and_server_out_of_sync] because
-      the situation is undesirable, so server owners should be made aware so that it can
-      be addressed.
-
-      Some good values for this parameter include:
-      - [Log.Global.info_s] - the mismatch is logged, but otherwise not handled.
-      - [raise_s] - the server will get to skip sending the whole state across the wire
-        and will instead merely send an error. This is often a good choice because usually
-        if clients have trouble receiving one response, they continue to have trouble
-        receiving more responses (for example, bin_shape errors don't go away naturally). *)
+           Some good values for this parameter include:
+           - [Log.Global.info_s] - the mismatch is logged, but otherwise not handled.
+           - [raise_s] - the server will get to skip sending the whole state across the
+             wire and will instead merely send an error. This is often a good choice
+             because usually if clients have trouble receiving one response, they continue
+             to have trouble receiving more responses (for example, bin_shape errors don't
+             go away naturally). *)
   -> ?for_first_request:('connection_state -> 'query -> 'response Deferred.t)
-       (** When provided, [for_first_request] is called instead of the primary implementation function
-      for the first_request of a particular query.  This is so that you can respond immediately to
-      the first request, but block on subsequent requests until there's an update to send. *)
+       (** When provided, [for_first_request] is called instead of the primary
+           implementation function for the first_request of a particular query. This is so
+           that you can respond immediately to the first request, but block on subsequent
+           requests until there's an update to send. *)
   -> ('query, 'response) t
   -> ('connection_state -> 'query -> 'response Deferred.t)
   -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
@@ -92,11 +93,11 @@ val implement_with_client_state
     receive the newest response that it has not yet seen. If it has seen the newest
     response, then the RPC implementation will block until there is a newer response.
 
-    This function immediately subscribes to the returned bus and cancels any
-    previous subscriptions each time it invokes the callback. It is recommended
-    that the bus use [Allow_and_send_last_value], so that each new query
-    doesn't miss the first response for each query (or even raise, if
-    [on_subscription_after_first_write] is set to [Raise]). *)
+    This function immediately subscribes to the returned bus and cancels any previous
+    subscriptions each time it invokes the callback. It is recommended that the bus use
+    [Allow_and_send_last_value], so that each new query doesn't miss the first response
+    for each query (or even raise, if [on_subscription_after_first_write] is set to
+    [Raise]). *)
 val implement_via_bus
   :  ?here:Stdlib.Lexing.position
   -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
@@ -111,11 +112,10 @@ val implement_via_bus
 
 (** Like [implement_via_bus], except that the callback does not return a deferred.
 
-    [implement_via_bus'] will call [Bus.subscribe] immediately after the callback
-    returns. When the client is no longer polling for the given query, this will
-    call [Bus.unsubscribe'], meaning that [Bus.num_subscribers] will count the client
-    as a subscriber iff the client is still polling for this query.
-*)
+    [implement_via_bus'] will call [Bus.subscribe] immediately after the callback returns.
+    When the client is no longer polling for the given query, this will call
+    [Bus.unsubscribe'], meaning that [Bus.num_subscribers] will count the client as a
+    subscriber iff the client is still polling for this query. *)
 val implement_via_bus'
   :  ?here:Stdlib.Lexing.position
   -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
@@ -132,9 +132,9 @@ module Client : sig
   type ('query, 'response) rpc := ('query, 'response) t
 
   (** A Client.t is the method by which polling-state-rpcs are dispatched to the server,
-      and their results collected by the client.  Clients independently track responses
-      and perform diff updates, so if you have two state-rpcs that share the same
-      underlying rpc, you should make a new client for each one. *)
+      and their results collected by the client. Clients independently track responses and
+      perform diff updates, so if you have two state-rpcs that share the same underlying
+      rpc, you should make a new client for each one. *)
   type ('query, 'response) t
 
   val create : ?initial_query:'query -> ('query, 'response) rpc -> ('query, 'response) t
@@ -147,8 +147,8 @@ module Client : sig
     -> 'query
     -> 'response Deferred.Or_error.t
 
-  (** Same as [dispatch] but reusing the previous query.  This function returns an Error
-      if the query was not set with [dispatch] or [create ~initial_query] beforehand. *)
+  (** Same as [dispatch] but reusing the previous query. This function returns an Error if
+      the query was not set with [dispatch] or [create ~initial_query] beforehand. *)
   val redispatch
     :  ('query, 'response) t
     -> Rpc.Connection.t
@@ -161,11 +161,11 @@ module Client : sig
 
       In addition, any queued and ongoing [dispatch]es will get cancelled.
 
-      Calling [dispatch] after [forget_on_server] works just fine, but
-      will require the server to send the entire response, rather than merely
-      the diff from the previous response. In other words, clearing a client
-      only affects speed/memory; it should have no effect on the results
-      returned by subsequent calls to [dispatch] or [redispatch]. *)
+      Calling [dispatch] after [forget_on_server] works just fine, but will require the
+      server to send the entire response, rather than merely the diff from the previous
+      response. In other words, clearing a client only affects speed/memory; it should
+      have no effect on the results returned by subsequent calls to [dispatch] or
+      [redispatch]. *)
   val forget_on_server
     :  ('query, 'response) t
     -> Rpc.Connection.t
@@ -174,8 +174,8 @@ module Client : sig
   (** Returns the most recent query. *)
   val query : ('query, _) t -> 'query option
 
-  (** Receives a [bus] which forwards all the responses that come from this
-      client alongside the query which requested them. *)
+  (** Receives a [bus] which forwards all the responses that come from this client
+      alongside the query which requested them. *)
   val bus : ('query, 'response) t -> ('query -> 'response -> unit) Bus.Read_only.t
 
   module For_introspection : sig
@@ -185,13 +185,16 @@ module Client : sig
       -> ('query, 'response) t
       -> Rpc.Connection.t
       -> 'query
-      -> ('response * Sexp.t lazy_t) Deferred.Or_error.t
+      -> ('response * Sexp.t lazy_t) Or_error.t Throttle.outcome Deferred.t
   end
 end
 
 module Private_for_testing : sig
   module Response : sig
     type 'response t [@@deriving sexp_of]
+
+    val bin_size_t : ('response -> int) -> 'response t -> int
+    val is_fresh : _ t -> bool
   end
 
   val create_client
