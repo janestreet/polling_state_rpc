@@ -179,8 +179,23 @@ module Client : sig
   val bus : ('query, 'response) t -> ('query -> 'response -> unit) Bus.Read_only.t
 
   module For_introspection : sig
+    module Response : sig
+      type 'response t [@@deriving sexp_of]
+
+      val bin_size_t : ('response -> int) -> 'response t -> int
+      val is_fresh : _ t -> bool
+    end
+
+    val collapse_sequencer_error : 'a Or_error.t Throttle.outcome -> 'a Or_error.t
+
     (** Like [dispatch], but also returns the underlying diff sent over the wire. *)
     val dispatch_with_underlying_diff
+      :  ('query, 'response) t
+      -> Rpc.Connection.t
+      -> 'query
+      -> ('response * 'response Response.t lazy_t) Or_error.t Throttle.outcome Deferred.t
+
+    val dispatch_with_underlying_diff_as_sexp
       :  ?sexp_of_response:('response -> Sexp.t)
       -> ('query, 'response) t
       -> Rpc.Connection.t
@@ -190,12 +205,7 @@ module Client : sig
 end
 
 module Private_for_testing : sig
-  module Response : sig
-    type 'response t [@@deriving sexp_of]
-
-    val bin_size_t : ('response -> int) -> 'response t -> int
-    val is_fresh : _ t -> bool
-  end
+  module Response = Client.For_introspection.Response
 
   val create_client
     :  ?initial_query:'query

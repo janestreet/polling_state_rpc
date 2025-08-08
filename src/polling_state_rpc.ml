@@ -422,6 +422,41 @@ let implement_via_bus'
 ;;
 
 module Client = struct
+  module Response' = struct
+    type 'response t =
+      | Fresh : 'response -> 'response t
+      | Update :
+          { t : 'update
+          ; sexp_of : 'update -> Sexp.t
+          ; bin_size_t : 'update -> int
+          }
+          -> 'response t
+
+    let sexp_of_t sexp_of_a = function
+      | Fresh a -> [%sexp Fresh (sexp_of_a a : Sexp.t)]
+      | Update { t; sexp_of; _ } -> [%sexp Update (sexp_of t : Sexp.t)]
+    ;;
+
+    let base_bin_size_t = [%bin_size: [ `Fresh | `Update ]]
+
+    let bin_size_t bin_size_a = function
+      | Fresh a -> base_bin_size_t `Fresh + bin_size_a a
+      | Update { t; bin_size_t; _ } -> base_bin_size_t `Update + bin_size_t t
+    ;;
+
+    let is_fresh = function
+      | Fresh _ -> true
+      | Update _ -> false
+    ;;
+
+    let of_response resp ~sexp_of_update ~bin_size_update =
+      match resp with
+      | Response.Fresh r -> Fresh r
+      | Update diffs ->
+        Update { t = diffs; sexp_of = sexp_of_update; bin_size_t = bin_size_update }
+    ;;
+  end
+
   type ('a, 'b) x = ('a, 'b) t
 
   type ('query, 'response, 'diff) unpacked =
@@ -491,7 +526,6 @@ module Client = struct
 
   let dispatch'
     (type query response diff)
-    ?(sexp_of_response : (response -> Sexp.t) option)
     (t : (query, response, diff) unpacked)
     connection
     query
@@ -514,13 +548,10 @@ module Client = struct
              Response with type t = response and type Update.t = diff =
              (val t.response_module)
            in
-          let module User_response = struct
-            include User_response
-
-            let sexp_of_t = Option.value ~default:sexp_of_opaque sexp_of_response
-          end
-          in
-          [%sexp_of: (User_response.t, User_response.Update.t) Response.t] response)
+          Response'.of_response
+            response
+            ~sexp_of_update:[%sexp_of: User_response.Update.t]
+            ~bin_size_update:[%bin_size: User_response.Update.t])
       in
       return (Ok (new_out, underlying_diff))
     | Ok Cancellation_successful -> return (Error Aborted_error.the_one_and_only)
@@ -540,7 +571,7 @@ module Client = struct
   ;;
 
   (* Use a sequencer to ensure that there aren't any sequential outgoing requests *)
-  let dispatch_with_underlying_diff ?sexp_of_response (T t) connection query =
+  let dispatch_with_underlying_diff (T t) connection query =
     let query_dispatch_id = Query_dispatch_id.create () in
     t.last_query_dispatch_id <- query_dispatch_id;
     match%bind cancel_current_if_query_changed t query connection with
@@ -550,14 +581,29 @@ module Client = struct
       then return `Aborted
       else (
         let%map result =
-          Throttle.enqueue' t.sequencer (fun () ->
-            dispatch' ?sexp_of_response t connection query)
+          Throttle.enqueue' t.sequencer (fun () -> dispatch' t connection query)
         in
         fix_sequencer_error result)
   ;;
 
+  let dispatch_with_underlying_diff_as_sexp ?sexp_of_response (T t) connection query =
+    let%map.Deferred x = dispatch_with_underlying_diff (T t) connection query in
+    match x with
+    | `Aborted -> `Aborted
+    | `Raised exn -> `Raised exn
+    | `Ok ok ->
+      `Ok
+        (let%map.Or_error response, raw_response = ok in
+         let raw_response =
+           let%map.Lazy raw_response in
+           let sexp_of_response = Option.value sexp_of_response ~default:sexp_of_opaque in
+           [%sexp_of: response Response'.t] raw_response
+         in
+         response, raw_response)
+  ;;
+
   let dispatch rpc connection query =
-    let%map.Deferred.Or_error response, (_ : Sexp.t lazy_t) =
+    let%map.Deferred.Or_error response, (_ : 'response Response'.t lazy_t) =
       dispatch_with_underlying_diff rpc connection query >>| collapse_sequencer_error
     in
     response
@@ -568,7 +614,7 @@ module Client = struct
       Throttle.enqueue' t.sequencer (fun () ->
         match t.last_query with
         | Some q ->
-          let%map.Deferred.Or_error response, (_ : Sexp.t lazy_t) =
+          let%map.Deferred.Or_error response, (_ : 'response Response'.t lazy_t) =
             dispatch' t connection q
           in
           response
@@ -656,38 +702,16 @@ module Client = struct
   ;;
 
   module For_introspection = struct
+    module Response = Response'
+
+    let collapse_sequencer_error = collapse_sequencer_error
     let dispatch_with_underlying_diff = dispatch_with_underlying_diff
+    let dispatch_with_underlying_diff_as_sexp = dispatch_with_underlying_diff_as_sexp
   end
 end
 
 module Private_for_testing = struct
-  module Response' = struct
-    type 'response t =
-      | Fresh : 'response -> 'response t
-      | Update :
-          { t : 'update
-          ; sexp_of : 'update -> Sexp.t
-          ; bin_size_t : 'update -> int
-          }
-          -> 'response t
-
-    let sexp_of_t sexp_of_a = function
-      | Fresh a -> [%sexp Fresh (sexp_of_a a : Sexp.t)]
-      | Update { t; sexp_of; _ } -> [%sexp Update (sexp_of t : Sexp.t)]
-    ;;
-
-    let base_bin_size_t = [%bin_size: [ `Fresh | `Update ]]
-
-    let bin_size_t bin_size_a = function
-      | Fresh a -> base_bin_size_t `Fresh + bin_size_a a
-      | Update { t; bin_size_t; _ } -> base_bin_size_t `Update + bin_size_t t
-    ;;
-
-    let is_fresh = function
-      | Fresh _ -> true
-      | Update _ -> false
-    ;;
-  end
+  module Response' = Client.Response'
 
   let create_client
     (type query response)
@@ -710,14 +734,10 @@ module Private_for_testing = struct
       let module M = (val response_module) in
       let fold prev query (resp : (response, diff) Response.t) =
         let resp' =
-          match resp with
-          | Response.Fresh r -> Response'.Fresh r
-          | Update diffs ->
-            Update
-              { t = diffs
-              ; sexp_of = [%sexp_of: M.Update.t]
-              ; bin_size_t = [%bin_size: M.Update.t]
-              }
+          Response'.of_response
+            resp
+            ~sexp_of_update:[%sexp_of: M.Update.t]
+            ~bin_size_update:[%bin_size: M.Update.t]
         in
         introspect prev query resp';
         fold prev query resp
