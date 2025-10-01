@@ -1251,17 +1251,14 @@ module%test [@name "implement_via_bus"] _ = struct
               (exn (
                 monitor.ml.Error
                 ("Bus.subscribe_exn called after first write"
-                 ((subscribed_from lib/polling_state_rpc/src/bus_state.ml:LINE:COL)
-                  ((
-                    bus (
-                      (callback_arity Arity1)
-                      (created_from
-                       lib/polling_state_rpc/test/polling_state_rpc_test.ml:LINE:COL)
-                      (on_subscription_after_first_write Raise)
-                      (state                             Ok_to_write)
-                      (write_ever_called                 true)
-                      (subscribers ())))))
-                 lib/bus/src/bus.ml:LINE:COL)
+                 ((callback_arity Arity1)
+                  (created_from
+                   lib/polling_state_rpc/test/polling_state_rpc_test.ml:LINE:COL)
+                  (on_subscription_after_first_write Raise)
+                  (state                             Ok_to_write)
+                  (write_ever_called                 true)
+                  (subscribers ()))
+                 lib/polling_state_rpc/src/bus_state.ml:LINE:COL)
                 ("ELIDED BACKTRACE"))))))
           (connection_description ("Client connected via TCP" 127.0.0.1:PORT))
           (rpc_name    foo)

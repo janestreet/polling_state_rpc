@@ -571,7 +571,7 @@ module Client = struct
   ;;
 
   (* Use a sequencer to ensure that there aren't any sequential outgoing requests *)
-  let dispatch_with_underlying_diff (T t) connection query =
+  let dispatch_with_underlying_diff ?(on_dispatch = Fn.id) (T t) connection query =
     let query_dispatch_id = Query_dispatch_id.create () in
     t.last_query_dispatch_id <- query_dispatch_id;
     match%bind cancel_current_if_query_changed t query connection with
@@ -581,13 +581,24 @@ module Client = struct
       then return `Aborted
       else (
         let%map result =
-          Throttle.enqueue' t.sequencer (fun () -> dispatch' t connection query)
+          Throttle.enqueue' t.sequencer (fun () ->
+            let d = dispatch' t connection query in
+            on_dispatch ();
+            d)
         in
         fix_sequencer_error result)
   ;;
 
-  let dispatch_with_underlying_diff_as_sexp ?sexp_of_response (T t) connection query =
-    let%map.Deferred x = dispatch_with_underlying_diff (T t) connection query in
+  let dispatch_with_underlying_diff_as_sexp
+    ?sexp_of_response
+    ?on_dispatch
+    (T t)
+    connection
+    query
+    =
+    let%map.Deferred x =
+      dispatch_with_underlying_diff ?on_dispatch (T t) connection query
+    in
     match x with
     | `Aborted -> `Aborted
     | `Raised exn -> `Raised exn

@@ -190,13 +190,15 @@ module Client : sig
 
     (** Like [dispatch], but also returns the underlying diff sent over the wire. *)
     val dispatch_with_underlying_diff
-      :  ('query, 'response) t
+      :  ?on_dispatch:(unit -> unit)
+      -> ('query, 'response) t
       -> Rpc.Connection.t
       -> 'query
       -> ('response * 'response Response.t lazy_t) Or_error.t Throttle.outcome Deferred.t
 
     val dispatch_with_underlying_diff_as_sexp
       :  ?sexp_of_response:('response -> Sexp.t)
+      -> ?on_dispatch:(unit -> unit)
       -> ('query, 'response) t
       -> Rpc.Connection.t
       -> 'query
