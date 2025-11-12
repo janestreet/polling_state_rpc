@@ -2,5 +2,5 @@
  (name polling_state_rpc_test)
  (preprocess
   (pps ppx_jane ppx_legacy_diff))
- (libraries core async legacy_diffable polling_state_rpc async_rpc_kernel
-   core_kernel.bus expect_test_helpers_core vec))
+ (libraries async async_rpc_kernel core_kernel.bus core
+   expect_test_helpers_core legacy_diffable polling_state_rpc vec))
