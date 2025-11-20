@@ -10,9 +10,9 @@ end
 
 module Query_dispatch_id = Unique_id.Int ()
 
-(* A Client_id.t is unique per Client.t for a given connection.
-   They are not guaranteed to be unique between connections. We need this
-   because a user could have multiple Client.t for the same Rpc. *)
+(* A Client_id.t is unique per Client.t for a given connection. They are not guaranteed to
+   be unique between connections. We need this because a user could have multiple Client.t
+   for the same Rpc. *)
 module Client_id = Unique_id.Int ()
 
 module Cache : sig
@@ -107,13 +107,13 @@ end = struct
 end
 
 module Request = struct
-  (* We maintain two variations of the request type so that we can change one
-     of them while keeping the other fixed. The stable type should be used only
-     as an intermediate step of (de)serialization.
+  (* We maintain two variations of the request type so that we can change one of them
+     while keeping the other fixed. The stable type should be used only as an intermediate
+     step of (de)serialization.
 
-     Changing the unstable type requires figuring out how to encode/decode any
-     additional data into/out-of the old stable type using the [unstable_of_stable]
-     and [stable_of_unstable]. *)
+     Changing the unstable type requires figuring out how to encode/decode any additional
+     data into/out-of the old stable type using the [unstable_of_stable] and
+     [stable_of_unstable]. *)
 
   module Unstable = struct
     type 'query t =
@@ -387,19 +387,18 @@ let implement_via_bus
     ~for_first_request:(fun connection_state (bus_state, client_state) query ->
       (* Set up the bus subscription to the new query. *)
       let%bind.Eager_deferred bus = f connection_state client_state query in
-      (* Subscribe to the new bus, unsubscribing to the previous bus if necessary.
-         It is good to subscribe to the bus as immediately after receiving the bus
-         via Eager_deferred, such that the publisher to the bus has an accurate
-         count of subscribers from [Bus.num_subscribers]. *)
+      (* Subscribe to the new bus, unsubscribing to the previous bus if necessary. It is
+         good to subscribe to the bus as immediately after receiving the bus via
+         Eager_deferred, such that the publisher to the bus has an accurate count of
+         subscribers from [Bus.num_subscribers]. *)
       Bus_state.subscribe bus_state bus;
       (* Wait for the bus to publish something to the [Bus_state.t] so we can return it as
          the response. *)
       Bus_state.take bus_state)
     (fun _connection_state (bus_state, _client_state) _query ->
-      (* For all polls except the first one for each query, we can simply wait
-          for the current bus to publish a new response. We ignore the query,
-          because we know that the bus subscription only ever corresponds to
-          the current query. *)
+      (* For all polls except the first one for each query, we can simply wait for the
+         current bus to publish a new response. We ignore the query, because we know that
+         the bus subscription only ever corresponds to the current query. *)
       Bus_state.take bus_state)
 ;;
 
@@ -484,21 +483,21 @@ module Client = struct
   ;;
 
   let cancel_current_if_query_changed t q connection =
-    (* use this cleaning_sequencer as a lock to prevent two subsequent queries
-       from obliterating the same sequencer. *)
+    (* use this cleaning_sequencer as a lock to prevent two subsequent queries from
+       obliterating the same sequencer. *)
     Throttle.enqueue' t.cleaning_sequencer (fun () ->
       match t.last_query with
-      (* If there was no previous query, we can keep the existing sequencer
-         because its totally empty. *)
+      (* If there was no previous query, we can keep the existing sequencer because its
+         totally empty. *)
       | None -> Deferred.Or_error.ok_unit
-      (* If the sequencer isn't running anything right now, then we can co-opt it
-         for this query. *)
+      (* If the sequencer isn't running anything right now, then we can co-opt it for this
+         query. *)
       | Some _ when Throttle.num_jobs_running t.sequencer = 0 -> Deferred.Or_error.ok_unit
-      (* If the current query is the same as the last one, then we're fine
-         because the sequencer is already running that kind of query. *)
+      (* If the current query is the same as the last one, then we're fine because the
+         sequencer is already running that kind of query. *)
       | Some q' when t.query_equal q q' -> Deferred.Or_error.ok_unit
-      (* Otherwise, we need to cancel the current request, kill every task currently
-         in the sequencer, and make a new sequencer for this query. *)
+      (* Otherwise, we need to cancel the current request, kill every task currently in
+         the sequencer, and make a new sequencer for this query. *)
       | _ ->
         Throttle.kill t.sequencer;
         let%bind cancel_response =
@@ -656,10 +655,10 @@ module Client = struct
         t.sequencer <- Sequencer.create ~continue_on_error:true ();
         match forget_response with
         | Ok (Response _) ->
-          (* It is possible that new clients of old servers will get
-             spammed with this message if [forget_on_server] is called a lot. However,
-             this sounds like an unlikely case to me, since old servers probably won't
-             exist for much longer; in addition, spamming this message is not terrible. *)
+          (* It is possible that new clients of old servers will get spammed with this
+             message if [forget_on_server] is called a lot. However, this sounds like an
+             unlikely case to me, since old servers probably won't exist for much longer;
+             in addition, spamming this message is not terrible. *)
           Or_error.error_s
             [%message
               "BUG"

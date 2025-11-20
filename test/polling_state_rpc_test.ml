@@ -299,7 +299,7 @@ let%expect_test "simulate client disconnecting and reconnecting" =
   in
   let%bind response = Polling_state_rpc.Client.dispatch client1 connection "def" in
   print_s [%sexp (response : T.t)];
-  (* notice that it's fresh now.  This implies that the user was removed from the cache. *)
+  (* notice that it's fresh now. This implies that the user was removed from the cache. *)
   [%expect
     {|
     ((prev (((foo abc) (bar 32)))) (query def)
@@ -344,8 +344,8 @@ let%expect_test "change query at a time that would otherwise cause blocking" =
   Deferred.Or_error.ok_exn
   @@
   let%bind server, where_to_connect =
-    (* The server always blocks forever on the second (and third, and
-       fourth, and ...) requests for the same query. *)
+    (* The server always blocks forever on the second (and third, and fourth, and ...)
+       requests for the same query. *)
     make_server ~block:(fun () -> Deferred.never ()) ()
   in
   let%bind connection =
@@ -359,9 +359,9 @@ let%expect_test "change query at a time that would otherwise cause blocking" =
     ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
     ((foo abc) (bar 32))
     |}];
-  (* Dispatching again on the same client changes the query.  Thus, the fact
-     that we get a response from this second dispatch shows that the server is
-     going through the "first request" code path for the latest poll request. *)
+  (* Dispatching again on the same client changes the query. Thus, the fact that we get a
+     response from this second dispatch shows that the server is going through the "first
+     request" code path for the latest poll request. *)
   let%bind response = Polling_state_rpc.Client.dispatch client connection "def" in
   print_s [%sexp (response : T.t)];
   [%expect
@@ -1213,11 +1213,10 @@ module%test [@name "implement_via_bus"] _ = struct
   ;;
 
   let%expect_test "bus gets created with [Raise]" =
-    (* This test demonstrates a way in which you might not satisfy the
-         constraints of the API. However, disallowing this usage with the type
-         is difficult or impossible, and the exeption you get back is good
-         enough that we don't need to add any extra logic to polling-state RPC
-         to tell the user of their mistake. *)
+    (* This test demonstrates a way in which you might not satisfy the constraints of the
+       API. However, disallowing this usage with the type is difficult or impossible, and
+       the exeption you get back is good enough that we don't need to add any extra logic
+       to polling-state RPC to tell the user of their mistake. *)
     let bus =
       Bus.create_exn
         Arity1
@@ -1373,7 +1372,7 @@ module%test [@name "implement_via_bus"] _ = struct
         (Ok 1)
         |}];
       (* We already have the bus, so we do not call the callback again, and therefore we
-           do not block on the mvar getting filled again. *)
+         do not block on the mvar getting filled again. *)
       push 2;
       let%bind response = query () in
       print_s [%sexp (response : int Or_error.t)];
@@ -1387,7 +1386,7 @@ module%test [@name "implement_via_bus"] _ = struct
 
   let%expect_test "sync callback - different behavior with Eager_deferred" =
     (* This is the same test as "async callback" above. The behavior differences are
-         important to note. *)
+       important to note. *)
     let bus =
       Bus.create_exn
         Arity1
@@ -1407,8 +1406,7 @@ module%test [@name "implement_via_bus"] _ = struct
       let query () = Polling_state_rpc.Client.dispatch client connection true in
       let push n = Bus.write bus n in
       let response = query () in
-      (* The bus itself is eager_deferred internally, so as soon as you push it's
-           active. *)
+      (* The bus itself is eager_deferred internally, so as soon as you push it's active. *)
       push 0;
       let%bind () = actually_yield_until_no_jobs_remain () in
       print_s [%sexp (Deferred.peek response : int Or_error.t option)];
