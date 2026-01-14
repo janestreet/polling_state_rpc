@@ -206,12 +206,338 @@ module Client : sig
   end
 end
 
+(** [Polling_state_rpc.Expert] allows creating versioned rpcs using the [Babel] helpers
+    and use authenticated implementations. *)
+module Expert : sig
+  type ('query, 'response) simple := ('query, 'response) t
+
+  (** [Polling_state_rpc.Expert.t] is equivalent to [Polling_state_rpc.t] except that it
+      materializes the ['update] arg type so we can take it in account in versioning. *)
+  type ('query, 'response, 'update) t
+
+  (** Creates a polling state rpc compatible with versioning and authorizations.
+
+      {[
+        let v1 =
+          Polling_state_rpc.Expert.create
+            ~name:"my-rpc"
+            ~version:1
+            ~query_equal:Stable.V1.Query.equal
+            ~bin_query:Stable.V1.Query.bin_t
+            (module Stable.V1.Response)
+        ;;
+
+        let v2 =
+          Polling_state_rpc.Expert.create
+            ~name:"my-rpc"
+            ~version:2
+            ~query_equal:Stable.V2.Query.equal
+            ~bin_query:Stable.V2.Query.bin_t
+            (module Stable.V2.Response)
+        ;;
+      ]} *)
+  val create
+    :  ?preserve_legacy_versioned_polling_state_rpc_caller_identity:bool
+    -> name:string
+    -> version:int
+    -> query_equal:('query -> 'query -> bool)
+    -> bin_query:'query Bin_prot.Type_class.t
+    -> (module Response with type t = 'response and type Update.t = 'update)
+    -> ('query, 'response, 'update) t
+
+  val name : _ t -> string
+  val version : _ t -> int
+  val description : _ t -> Rpc.Description.t
+  val shapes : _ t -> Rpc_shapes.t
+
+  (** Convert to a simple version of this rpc *)
+  val to_simple : ('query, 'response, _) t -> ('query, 'response) simple
+
+  (** Produce implementations that can either be used with [to_babel_implementation] and
+      [Babel.Callee.implement_multi_exn] or used in a single version implementation with
+      [to_rpc_implementation].
+
+      The implementation styles offered are the same as with the [implement*] apis above.
+
+      {[
+        let v2_impl =
+          Polling_state_rpc.Expert.Implementation.create_with_client_state
+            ~on_client_and_server_out_of_sync:(fun _ -> ())
+            ~create_client_state:(fun _ -> ref 0)
+            ~response:(module Stable.V2.Response)
+            ~query_equal:Stable.V2.Query.equal
+            (fun ( (* connection_state *) )
+              `Authorized
+              client_state
+              (query : Stable.V2.Query.t) ->
+              client_state := !client_state + query.add;
+              return ({ count = !client_state } : Stable.V2.Response.t))
+        ;;
+      ]}
+
+      Use the [Babel.Callee] api seen later to implement all versioned implementations at
+      once. *)
+  module Implementation : sig
+    type ('query, 'response, 'update) rpc := ('query, 'response, 'update) t
+    type ('query, 'response, 'update) base
+
+    (** Represents an authenticable implementation *)
+    type ('connection_state, 'authed, 'query, 'response, 'update) t =
+      'connection_state * Rpc.Connection.t
+      -> Rpc.Description.t
+      -> 'authed
+      -> ('query, 'response, 'update) base
+
+    val create
+      :  ?for_first_request:
+           ('connection_state -> 'authed -> 'query -> 'response Deferred.t)
+      -> ('connection_state -> 'authed -> 'query -> 'response Deferred.t)
+      -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
+      -> response:(module Response with type t = 'response and type Update.t = 'update)
+      -> query_equal:('query -> 'query -> bool)
+      -> ('connection_state, 'authed, 'query, 'response, 'update) t
+
+    val create_with_client_state
+      :  ?on_client_forgotten:('client_state -> unit)
+      -> ?for_first_request:
+           ('connection_state
+            -> 'authed
+            -> 'client_state
+            -> 'query
+            -> 'response Deferred.t)
+      -> ('connection_state -> 'authed -> 'client_state -> 'query -> 'response Deferred.t)
+      -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
+      -> create_client_state:('connection_state -> 'client_state)
+      -> response:(module Response with type t = 'response and type Update.t = 'update)
+      -> query_equal:('query -> 'query -> bool)
+      -> ('connection_state, 'authed, 'query, 'response, 'update) t
+
+    val create_via_bus
+      :  ?on_client_forgotten:('client_state -> unit)
+      -> ('connection_state
+          -> 'authed
+          -> 'client_state
+          -> 'query
+          -> ('response -> unit, [> read ]) Bus.t Deferred.t)
+      -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
+      -> create_client_state:('connection_state -> 'client_state)
+      -> response:(module Response with type t = 'response and type Update.t = 'update)
+      -> query_equal:('query -> 'query -> bool)
+      -> ('connection_state, 'authed, 'query, 'response, 'update) t
+
+    val create_via_bus'
+      :  ?on_client_forgotten:('client_state -> unit)
+      -> ('connection_state
+          -> 'authed
+          -> 'client_state
+          -> 'query
+          -> ('response -> unit, [> read ]) Bus.t)
+      -> on_client_and_server_out_of_sync:(Sexp.t -> unit)
+      -> create_client_state:('connection_state -> 'client_state)
+      -> response:(module Response with type t = 'response and type Update.t = 'update)
+      -> query_equal:('query -> 'query -> bool)
+      -> ('connection_state, 'authed, 'query, 'response, 'update) t
+
+    (** Converts the implementation to a single version rpc that doesn't check for
+        authorization.
+
+        You can pattern-match the ['authed] argument of the function with [`Authorized] *)
+    val to_rpc_implementation
+      :  here:[%call_pos]
+      -> ?on_exception:Rpc.On_exception.t
+      -> ('connection_state, [ `Authorized ], 'query, 'response, 'update) t
+      -> rpc:('query, 'response, 'update) rpc
+      -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
+
+    (** Converts the implementation to a single version rpc that checks for authorization. *)
+    val to_rpc_implementation_with_auth
+      :  here:[%call_pos]
+      -> ?on_exception:Rpc.On_exception.t
+      -> ('connection_state, 'authed, 'query, 'response, 'update) t
+      -> check_auth:
+           ('connection_state
+            -> [ `Query of 'query | `Cancel_ongoing ]
+            -> 'authed Or_not_authorized.t Deferred.t)
+      -> rpc:('query, 'response, 'update) rpc
+      -> ('connection_state * Rpc.Connection.t) Rpc.Implementation.t
+
+    (** Converts the implementation to a [Babel.Callee] implementation.
+
+        As babel does not support (yet) authorized calls, we set authed to [`Authorized]. *)
+    val to_babel_implementation
+      :  ('connection_state, [ `Authorized ], 'query, 'response, 'update) t
+      -> ('connection_state * Rpc.Connection.t
+          -> Rpc.Description.t
+          -> ('query, 'response, 'update) base)
+  end
+
+  (** Client resolvers are used as dispatches in callers. They are meant to be
+      "instantiated" to clients in by calling [negotiate] on them. *)
+  module Client_resolver : sig
+    type ('query, 'response, 'update) t
+
+    val negotiate
+      :  ?initial_query:'query
+      -> ('query, 'response, _) t
+      -> ('query, 'response) Client.t
+  end
+
+  module For_tests : sig
+    val response_module
+      :  (_, 'response, 'update) t
+      -> (module Response with type t = 'response and type Update.t = 'update)
+
+    val query_equal : ('query, _, _) t -> ('query -> 'query -> bool)
+  end
+end
+
+(** A set of apis compatible with [Babel.Caller] and [Babel.Callee] types. *)
+module Babel : sig
+  (** Represents the different versions for an rpc and the type transitions between them
+      on the server-side.
+      {[
+        let callee =
+          Polling_state_rpc.Babel.Callee.singleton v1
+          |> Polling_state_rpc.Babel.Callee.map_query ~f:Stable.V2.Query.of_v1_t
+          |> Polling_state_rpc.Babel.Callee.map_response ~f:Stable.V2.Response.to_v1_t
+          |> Polling_state_rpc.Babel.Callee.map_update
+               ~f:Stable.V2.Response.Update.to_v1_t
+          |> Polling_state_rpc.Babel.Callee.add ~rpc:v2
+        ;;
+
+        let implementations =
+          Babel.Callee.implement_multi_exn
+            callee
+            ~f:(Polling_state_rpc.Expert.Implementation.to_babel_implementation v2_impl)
+        ;;
+      ]}
+
+      Implementing with the callee will implement the two versions at once:
+      {[
+        # List.length implementations
+        - : int = 2
+      ]} *)
+  module Callee : sig
+    type ('query, 'response, 'update) implementation :=
+      ('query, 'response, 'update) Expert.Implementation.base
+
+    type 'a t := 'a Babel.Callee.t
+
+    (** Create a callee which can implement a given rpc. *)
+    val singleton
+      :  ('query, 'response, 'update) Expert.t
+      -> ('query, 'response, 'update) implementation t
+
+    (** Extend a callee to be able to implement a given rpc. *)
+    val add
+      :  ('query, 'response, 'update) implementation t
+      -> rpc:('query, 'response, 'update) Expert.t
+      -> ('query, 'response, 'update) implementation t
+
+    (** Map over the query type of a callee. *)
+    val map_query
+      :  ('query1, 'response, 'update) implementation t
+      -> f:('query1 -> 'query2)
+      -> ('query2, 'response, 'update) implementation t
+
+    (** Map over the response type of a callee. *)
+    val map_response
+      :  ('query, 'response1, 'update) implementation t
+      -> f:('response2 -> 'response1)
+      -> ('query, 'response2, 'update) implementation t
+
+    (** Map over the update type of a callee. *)
+    val map_update
+      :  ('query, 'response, 'update1) implementation t
+      -> f:('update2 -> 'update1)
+      -> ('query, 'response, 'update2) implementation t
+  end
+
+  (** Represents the different versions for an rpc and the type transitions between them
+      on the client-side.
+      {[
+        let caller =
+          Polling_state_rpc.Babel.Caller.singleton v1
+          |> Polling_state_rpc.Babel.Caller.map_query ~f:Stable.V2.Query.to_v1_t
+          |> Polling_state_rpc.Babel.Caller.map_response
+               ~f:Stable.V2.Response.of_v1_t
+               ~update_fn:Stable.V2.Response.update
+               ~upgrade_update:Stable.V2.Response.Update.of_v1_t
+               ~downgrade_update:Stable.V2.Response.Update.to_v1_t
+          |> Polling_state_rpc.Babel.Caller.add ~rpc:v2
+        ;;
+      ]}
+
+      Once you have a caller, you can negotiate a dispatch with a Connection with menu:
+      {[
+        # let dispatch = Polling_state_rpc.Babel.Caller.dispatch_multi_and_negotiate caller
+        val dispatch :
+          Versioned_rpc.Connection_with_menu.t ->
+          (Stable.V2.Query.t, Stable.V2.Response.t) Polling_state_rpc.Client.t
+          Core.Or_error.t = <fun>
+      ]} *)
+  module Caller : sig
+    type ('query, 'response, 'update) dispatch :=
+      ('query, 'response, 'update) Expert.Client_resolver.t
+
+    type 'a t := 'a Babel.Caller.t
+
+    val dispatch_multi
+      :  ('query, 'response, 'update) dispatch t
+      -> Versioned_rpc.Connection_with_menu.t
+      -> ('query, 'response, 'update) dispatch Or_error.t
+
+    val dispatch_multi_and_negotiate
+      :  ?initial_query:'query
+      -> ('query, 'response, _) dispatch t
+      -> Versioned_rpc.Connection_with_menu.t
+      -> ('query, 'response) Client.t Or_error.t
+
+    val singleton
+      :  ?metadata:Rpc_metadata.V2.t
+      -> ('query, 'response, 'update) Expert.t
+      -> ('query, 'response, 'update) dispatch t
+
+    val add
+      :  ('query, 'response, 'update) dispatch t
+      -> rpc:('query, 'response, 'update) Expert.t
+      -> ('query, 'response, 'update) dispatch t
+
+    (** A specialization of [map] for the query type of a protocol. *)
+    val map_query
+      :  ('query1, 'response, 'update) dispatch t
+      -> f:('query2 -> 'query1)
+      -> ('query2, 'response, 'update) dispatch t
+
+    (** A specialization of [map] for the response and update types of a protocol. This
+        mapping needs to be bi-directional and aware of the diff application to correctly
+        apply minimal diffs with minimal type conversion: we only map fresh responses and
+        apply diffs in the upgraded version space.
+
+        This means that this upgrade conserves physical equality whenever the diff update
+        conserves it. *)
+    val map_response
+      :  ('query, 'response1, 'update1) dispatch t
+      -> f:('response1 -> 'response2)
+      -> upgrade_update:('update1 -> 'update2)
+      -> downgrade_update:('update2 -> 'update1)
+      -> update_fn:('response2 -> 'update2 -> 'response2)
+      -> ('query, 'response2, 'update2) dispatch t
+  end
+end
+
 module Private_for_testing : sig
   module Response = Client.For_introspection.Response
 
   val create_client
     :  ?initial_query:'query
     -> ('query, 'response) t
+    -> introspect:('response option -> 'query -> 'response Response.t -> unit)
+    -> ('query, 'response) Client.t
+
+  val negotiate
+    :  ?initial_query:'query
+    -> ('query, 'response, 'update) Expert.Client_resolver.t
     -> introspect:('response option -> 'query -> 'response Response.t -> unit)
     -> ('query, 'response) Client.t
 end

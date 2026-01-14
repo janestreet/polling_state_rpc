@@ -909,9 +909,9 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "single client, single query" =
     let bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let implementation =
       Polling_state_rpc.implement_via_bus
@@ -983,15 +983,15 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "single client, multiple queries" =
     let true_bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let false_bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let implementation =
       Polling_state_rpc.implement_via_bus
@@ -1067,9 +1067,9 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "multiple clients, single query" =
     let bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let implementation =
       Polling_state_rpc.implement_via_bus
@@ -1116,15 +1116,15 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "multiple clients, multiple queries" =
     let true_bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let false_bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let implementation =
       Polling_state_rpc.implement_via_bus
@@ -1180,9 +1180,9 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "bus gets created with [Allow]" =
     let bus =
       Bus.create_exn
-        Arity1
         ~on_subscription_after_first_write:Allow
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let implementation =
       Polling_state_rpc.implement_via_bus
@@ -1219,9 +1219,9 @@ module%test [@name "implement_via_bus"] _ = struct
        to polling-state RPC to tell the user of their mistake. *)
     let bus =
       Bus.create_exn
-        Arity1
         ~on_subscription_after_first_write:Raise
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let implementation =
       Polling_state_rpc.implement_via_bus
@@ -1250,8 +1250,7 @@ module%test [@name "implement_via_bus"] _ = struct
               (exn (
                 monitor.ml.Error
                 ("Bus.subscribe_exn called after first write"
-                 ((callback_arity Arity1)
-                  (created_from
+                 ((created_from
                    lib/polling_state_rpc/test/polling_state_rpc_test.ml:LINE:COL)
                   (on_subscription_after_first_write Raise)
                   (state                             Ok_to_write)
@@ -1269,9 +1268,9 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "client_state" =
     let bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let implementation =
       Polling_state_rpc.implement_via_bus
@@ -1335,9 +1334,9 @@ module%test [@name "implement_via_bus"] _ = struct
   let%expect_test "async callback" =
     let bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let mvar = Mvar.create () in
     let implementation =
@@ -1389,9 +1388,9 @@ module%test [@name "implement_via_bus"] _ = struct
        important to note. *)
     let bus =
       Bus.create_exn
-        Arity1
-        ~on_subscription_after_first_write:Allow_and_send_last_value
+        ~on_subscription_after_first_write:Allow_and_send_last_value_if_global
         ~on_callback_raise:(fun error -> print_s [%message (error : Error.t)])
+        ()
     in
     let implementation =
       Polling_state_rpc.implement_via_bus'
@@ -1430,4 +1429,11 @@ module%test [@name "implement_via_bus"] _ = struct
         |}];
       return ())
   ;;
+end
+
+module Mdx_prelude = struct
+  include Core
+  include Async
+  include Async_rpc_kernel
+  include Babel_fixtures
 end
