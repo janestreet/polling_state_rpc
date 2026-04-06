@@ -235,7 +235,12 @@ module Expert : sig
             ~bin_query:Stable.V2.Query.bin_t
             (module Stable.V2.Response)
         ;;
-      ]} *)
+      ]}
+
+      - [preserve_legacy_versioned_polling_state_rpc_caller_identity] is a compatiblity
+        feature that ensures we conserve the same bin shapes when migrating from
+        [Versioned_polling_state_rpc] to [Polling_state_rpc.Expert/Babel]. It defaults to
+        [false]. *)
   val create
     :  ?preserve_legacy_versioned_polling_state_rpc_caller_identity:bool
     -> name:string

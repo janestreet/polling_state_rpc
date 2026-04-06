@@ -1,3 +1,5 @@
+(** This library bridges the gap between [ppx_diff] and [Polling_state_rpc]. *)
+
 open! Core
 
 module Make (M : sig
