@@ -847,6 +847,46 @@ let%expect_test "demonstrate client state with destructor" =
   return ()
 ;;
 
+let%expect_test "[dispatch_and_forget] forgets server-side state after returning a \
+                 response"
+  =
+  let server = make_server_with_client_state () in
+  let%bind connection = Pipe_transport_server.client_connection server in
+  let client = make_client () in
+  let%bind response =
+    Polling_state_rpc.Client.dispatch_and_forget client connection "abc"
+  in
+  print_s [%sexp (response : T.t Or_error.t)];
+  [%expect
+    {|
+    1:1 created.
+    ((prev ()) (query abc) (diff (Fresh ((foo abc) (bar 32)))))
+    1:1 forgotten.
+    (Ok ((foo abc) (bar 32)))
+    |}];
+  (* After [dispatch_and_forget], [redispatch] / [forget_on_server] still work with the
+     same client. *)
+  let%bind response = Polling_state_rpc.Client.redispatch client connection in
+  print_s [%sexp (response : T.t Or_error.t)];
+  [%expect
+    {|
+    1:2 created.
+    ((prev (((foo abc) (bar 32)))) (query abc)
+     (diff (Fresh ((foo abc) (bar 33)))))
+    (Ok ((foo abc) (bar 33)))
+    |}];
+  let%bind () =
+    Polling_state_rpc.Client.forget_on_server client connection >>| Or_error.ok_exn
+  in
+  [%expect {| 1:2 forgotten. |}];
+  let%bind () = Rpc.Connection.close connection in
+  let%bind () = Rpc.Connection.close_finished connection in
+  Pipe_transport_server.shutdown server;
+  let%bind () = Async.Scheduler.yield_until_no_jobs_remain () in
+  [%expect {| |}];
+  return ()
+;;
+
 module%test [@name "implement_via_bus"] _ = struct
   module Response = struct
     include Int
