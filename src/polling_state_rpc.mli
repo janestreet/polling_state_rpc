@@ -171,6 +171,19 @@ module Client : sig
     -> Rpc.Connection.t
     -> unit Deferred.Or_error.t
 
+  (** Same as [dispatch], but intended for one-shot use. After the dispatch completes, it
+      asks the server to forget any state associated with this client so the server can
+      free that memory immediately instead of waiting for the connection to close.
+
+      Cleanup failures are ignored, because forgetting only affects resource usage, not
+      the response returned by this call. Calling [dispatch] or [redispatch] afterward
+      still works; it will just behave like a fresh client on the server side. *)
+  val dispatch_and_forget
+    :  ('query, 'response) t
+    -> Rpc.Connection.t
+    -> 'query
+    -> 'response Deferred.Or_error.t
+
   (** Returns the most recent query. *)
   val query : ('query, _) t -> 'query option
 

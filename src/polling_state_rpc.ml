@@ -857,6 +857,15 @@ module Client = struct
       >>| collapse_sequencer_error
   ;;
 
+  let dispatch_and_forget rpc connection query =
+    Monitor.protect
+      ~finally:(fun () ->
+        (* This cleanup is a courtesy to the server so it can release resources. Callers
+           still got the dispatch result, so dropping cleanup failures is fine. *)
+        forget_on_server rpc connection >>| (ignore : unit Or_error.t -> unit))
+      (fun () -> dispatch rpc connection query)
+  ;;
+
   let query (T { last_query; _ }) = last_query
   let bus (T { bus; _ }) = Bus.read_only bus
 
