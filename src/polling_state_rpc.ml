@@ -675,7 +675,7 @@ module Client = struct
   type ('query, 'response) t =
     | T : ('query, 'response, 'diff) unpacked -> ('query, 'response) t
 
-  let cancel_current_if_query_changed t q connection =
+  let cancel_current_if_query_changed ?(on_dispatch = Fn.id) t q connection =
     (* use this cleaning_sequencer as a lock to prevent two subsequent queries from
        obliterating the same sequencer. *)
     Throttle.enqueue' t.cleaning_sequencer (fun () ->
@@ -693,9 +693,11 @@ module Client = struct
          the sequencer, and make a new sequencer for this query. *)
       | _ ->
         Throttle.kill t.sequencer;
-        let%bind cancel_response =
+        let cancel_response_deferred =
           t.dispatch_underlying connection (Cancel_ongoing t.client_id)
         in
+        on_dispatch ();
+        let%bind cancel_response = cancel_response_deferred in
         let%map () = Throttle.cleaned t.sequencer in
         t.sequencer <- Sequencer.create ~continue_on_error:true ();
         (match cancel_response with
@@ -759,10 +761,18 @@ module Client = struct
   ;;
 
   (* Use a sequencer to ensure that there aren't any sequential outgoing requests *)
-  let dispatch_with_underlying_diff ?(on_dispatch = Fn.id) (T t) connection query =
+  let dispatch_with_underlying_diff
+    ?(on_dispatch = Fn.id)
+    ?on_cancel_dispatch
+    (T t)
+    connection
+    query
+    =
     let query_dispatch_id = Query_dispatch_id.create () in
     t.last_query_dispatch_id <- query_dispatch_id;
-    match%bind cancel_current_if_query_changed t query connection with
+    match%bind
+      cancel_current_if_query_changed ?on_dispatch:on_cancel_dispatch t query connection
+    with
     | (`Aborted | `Raised _ | `Ok (Error _)) as result -> return result
     | `Ok (Ok ()) ->
       if not (Query_dispatch_id.equal t.last_query_dispatch_id query_dispatch_id)
@@ -780,12 +790,18 @@ module Client = struct
   let dispatch_with_underlying_diff_as_sexp
     ?sexp_of_response
     ?on_dispatch
+    ?on_cancel_dispatch
     (T t)
     connection
     query
     =
     let%map.Deferred x =
-      dispatch_with_underlying_diff ?on_dispatch (T t) connection query
+      dispatch_with_underlying_diff
+        ?on_dispatch
+        ?on_cancel_dispatch
+        (T t)
+        connection
+        query
     in
     match x with
     | `Aborted -> `Aborted
@@ -826,7 +842,7 @@ module Client = struct
     collapse_sequencer_error (fix_sequencer_error result)
   ;;
 
-  let forget_on_server (T t) connection =
+  let forget_on_server ?(on_dispatch = Fn.id) (T t) connection =
     t.last_query_dispatch_id <- Query_dispatch_id.create ();
     match t.last_query with
     (* If there was no previous query, then the server has nothing to forget. *)
@@ -834,11 +850,13 @@ module Client = struct
     | Some query ->
       Throttle.enqueue' t.cleaning_sequencer (fun () ->
         Throttle.kill t.sequencer;
-        let%bind forget_response =
+        let forget_response_deferred =
           t.dispatch_underlying
             connection
             (Forget_client { query; client_id = t.client_id })
         in
+        on_dispatch ();
+        let%bind forget_response = forget_response_deferred in
         let%map () = Throttle.cleaned t.sequencer in
         t.sequencer <- Sequencer.create ~continue_on_error:true ();
         match forget_response with

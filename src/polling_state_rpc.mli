@@ -165,9 +165,13 @@ module Client : sig
       server to send the entire response, rather than merely the diff from the previous
       response. In other words, clearing a client only affects speed/memory; it should
       have no effect on the results returned by subsequent calls to [dispatch] or
-      [redispatch]. *)
+      [redispatch].
+
+      [on_dispatch], if provided, is called synchronously immediately after the
+      [Forget_client] message is dispatched on the underlying RPC connection. *)
   val forget_on_server
-    :  ('query, 'response) t
+    :  ?on_dispatch:(unit -> unit)
+    -> ('query, 'response) t
     -> Rpc.Connection.t
     -> unit Deferred.Or_error.t
 
@@ -204,6 +208,7 @@ module Client : sig
     (** Like [dispatch], but also returns the underlying diff sent over the wire. *)
     val dispatch_with_underlying_diff
       :  ?on_dispatch:(unit -> unit)
+      -> ?on_cancel_dispatch:(unit -> unit)
       -> ('query, 'response) t
       -> Rpc.Connection.t
       -> 'query
@@ -212,6 +217,7 @@ module Client : sig
     val dispatch_with_underlying_diff_as_sexp
       :  ?sexp_of_response:('response -> Sexp.t)
       -> ?on_dispatch:(unit -> unit)
+      -> ?on_cancel_dispatch:(unit -> unit)
       -> ('query, 'response) t
       -> Rpc.Connection.t
       -> 'query
